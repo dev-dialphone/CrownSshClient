@@ -54,29 +54,58 @@ export default function Home() {
         <div className="flex-1 max-w-2xl mx-auto">
           <GlobalSearch />
         </div>
-        <div className="w-20" />
+
+        {/* Desktop Admin Tabs */}
+        <div className="hidden md:flex items-center gap-2 ml-4 w-auto justify-end">
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => setActiveTab('access')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'access' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  }`}
+              >
+                <Users size={16} /> Access
+              </button>
+              <button
+                onClick={() => setActiveTab('logs')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'logs' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  }`}
+              >
+                <ScrollText size={16} /> Logs
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
-        {/* Standard panels — hide on non-matching mobile tab */}
-        <div className={`${activeTab === 'env' ? 'flex' : 'hidden'} md:flex flex-1 md:flex-none h-full overflow-hidden`}>
-          <EnvironmentSelector />
-        </div>
-        <div className={`${activeTab === 'vm' ? 'flex' : 'hidden'} md:flex flex-1 md:flex-none h-full overflow-hidden`}>
-          <VMList />
-        </div>
-        <div className={`${activeTab === 'exec' ? 'flex' : 'hidden'} md:flex flex-1 h-full overflow-hidden`}>
-          <CommandExecutor />
-        </div>
-
-        {/* Admin-only panels */}
-        {isAdmin && (
-          <>
-            <div className={`${activeTab === 'access' ? 'flex' : 'hidden'} md:hidden flex-1 h-full overflow-y-auto p-4`}>
-              <AccessControlPanel />
+        {/* Admin Panels (Desktop & Mobile) */}
+        {isAdmin && (activeTab === 'access' || activeTab === 'logs') ? (
+          <div className="flex-1 flex flex-col h-full bg-black overflow-hidden relative">
+            <div className="absolute top-4 right-4 z-10">
+              <button
+                onClick={() => setActiveTab('env')}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm transition-colors"
+              >
+                ← Back to Dashboard
+              </button>
             </div>
-            <div className={`${activeTab === 'logs' ? 'flex' : 'hidden'} md:hidden flex-1 h-full overflow-y-auto p-4`}>
-              <AuditLogView />
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full">
+              {activeTab === 'access' && <AccessControlPanel />}
+              {activeTab === 'logs' && <AuditLogView />}
+            </div>
+          </div>
+        ) : (
+          /* Standard Dashboard Panels (Env / VM / Exec) */
+          <>
+            <div className={`${activeTab === 'env' ? 'flex' : 'hidden'} md:flex flex-1 md:flex-none h-full overflow-hidden`}>
+              <EnvironmentSelector />
+            </div>
+            <div className={`${activeTab === 'vm' ? 'flex' : 'hidden'} md:flex flex-1 md:flex-none h-full overflow-hidden`}>
+              <VMList />
+            </div>
+            <div className={`${activeTab === 'exec' ? 'flex' : 'hidden'} md:flex flex-1 h-full overflow-hidden`}>
+              <CommandExecutor />
             </div>
           </>
         )}

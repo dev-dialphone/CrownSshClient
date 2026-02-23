@@ -28,19 +28,36 @@ export default function AccessControlPanel() {
     const [users, setUsers] = useState<UserEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedDuration, setSelectedDuration] = useState<Record<string, number | null>>({});
+    const [approvalRequired, setApprovalRequired] = useState(false);
 
-    const fetchUsers = async () => {
+    const fetchData = async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/access-requests');
-            const data = await res.json();
-            setUsers(data);
+            const [usersRes, settingsRes] = await Promise.all([
+                fetch('/api/access-requests'),
+                fetch('/api/settings')
+            ]);
+            const [usersData, settingsData] = await Promise.all([
+                usersRes.json(),
+                settingsRes.json()
+            ]);
+            setUsers(usersData);
+            setApprovalRequired(settingsData.accessRequestsRequired || false);
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => { fetchUsers(); }, []);
+    useEffect(() => { fetchData(); }, []);
+
+    const toggleApprovalRequired = async (newValue: boolean) => {
+        setApprovalRequired(newValue); // Optimistic UI update
+        await fetch('/api/settings/accessRequestsRequired', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: newValue }),
+        });
+    };
 
     const approve = async (userId: string) => {
         const durationDays = selectedDuration[userId] ?? null;
@@ -49,17 +66,17 @@ export default function AccessControlPanel() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ durationDays }),
         });
-        fetchUsers();
+        fetchData();
     };
 
     const reject = async (userId: string) => {
         await fetch(`/api/access-requests/${userId}/reject`, { method: 'PATCH' });
-        fetchUsers();
+        fetchData();
     };
 
     const revoke = async (userId: string) => {
         await fetch(`/api/access-requests/${userId}/revoke`, { method: 'PATCH' });
-        fetchUsers();
+        fetchData();
     };
 
     if (loading) {
@@ -116,6 +133,25 @@ export default function AccessControlPanel() {
 
     return (
         <div className="space-y-6">
+            {/* Global Settings Section */}
+            <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="text-sm font-semibold text-zinc-200">Require Access Approval</h3>
+                        <p className="text-xs text-zinc-500 mt-1">If enabled, new users who sign in via Google will be placed in a 'pending' state until approved here.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                        <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={approvalRequired}
+                            onChange={(e) => toggleApprovalRequired(e.target.checked)}
+                        />
+                        <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+            </div>
+
             {pending.length > 0 && (
                 <div>
                     <h3 className="text-xs uppercase tracking-wider text-yellow-500 font-semibold mb-3 flex items-center gap-2">
