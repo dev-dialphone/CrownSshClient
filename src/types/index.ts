@@ -19,9 +19,11 @@ export interface Environment {
 export interface User {
   id: string;
   displayName: string;
-  email?: string;
+  email: string;
   photos?: { value: string }[];
   role: 'admin' | 'user';
+  status?: 'pending' | 'active' | 'rejected';
+  accessExpiresAt?: string;
   isTotpEnabled?: boolean;
 }
 

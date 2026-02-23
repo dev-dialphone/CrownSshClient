@@ -20,20 +20,27 @@ import logger from './utils/logger.js'
 import { AppError } from './utils/AppError.js'
 import { User } from './models/User.js'
 import { ipWhitelist } from './middleware/ipWhitelist.js'
+import { Setting } from './models/Setting.js'
+import { initWebPush } from './services/pushService.js'
+import { startHealthMonitor } from './services/healthService.js'
 
 import authRoutes from './routes/auth.js'
 import vmRoutes from './routes/vms.js'
 import environmentRoutes from './routes/environments.js'
 import executionRoutes from './routes/execution.js'
 import totpRoutes from './routes/totp.js'
+import settingsRoutes from './routes/settings.js'
+import accessRequestsRoutes from './routes/accessRequests.js'
+import auditLogsRoutes from './routes/auditLogs.js'
+import pushRoutes from './routes/push.js'
 
 const app: express.Application = express()
 
 // Trust exactly 1 proxy hop (the Nginx container in front of this backend)
 app.set('trust proxy', 1);
 
-// IP whitelist — must be first to block unauthorized IPs early
-app.use(ipWhitelist);
+// Auth routes are EXEMPT from IP whitelist so users can authenticate from any IP
+// The role-aware whitelist is applied later (post-session) to data/API routes.
 
 // Basic security & performance middleware
 app.use(helmet())
@@ -149,13 +156,16 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   },
     async (accessToken: string, refreshToken: string, profile: any, done: (error: any, user?: any) => void) => {
       try {
-        // Find or create user in the database
         let user = await User.findOne({ googleId: profile.id });
 
         if (!user) {
-          // Determine role: first user ever becomes admin
           const userCount = await User.countDocuments();
           const role = userCount === 0 ? 'admin' : 'user';
+
+          // Check global setting: does this platform require access approval?
+          const setting = await Setting.findOne({ key: 'accessRequestsRequired' });
+          const requiresApproval = setting?.value === true;
+          const status = role === 'admin' ? 'active' : (requiresApproval ? 'pending' : 'active');
 
           user = new User({
             googleId: profile.id,
@@ -163,9 +173,17 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
             email: profile.emails?.[0]?.value || '',
             photo: profile.photos?.[0]?.value || '',
             role,
+            status,
           });
           await user.save();
-          logger.info(`New user created: ${user.email} with role: ${role}`);
+          logger.info(`New user created: ${user.email} (role: ${role}, status: ${status})`);
+        } else {
+          // Check if a temporary user's access has expired
+          if (user.isTempAccess && user.accessExpiresAt && new Date() > user.accessExpiresAt) {
+            user.status = 'pending';
+            await user.save();
+            logger.info(`Temporary access expired for user: ${user.email}`);
+          }
         }
 
         return done(null, user);
@@ -182,10 +200,18 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
  * API Routes
  */
 app.use('/api/auth', authLimiter, authRoutes)
+
+// Role-aware IP whitelist: Admins bypass it, regular users are blocked if not in ALLOWED_IPS
+app.use('/api', ipWhitelist);
+
 app.use('/api/vms', vmRoutes)
 app.use('/api/environments', environmentRoutes)
 app.use('/api/execute', executionRoutes)
 app.use('/api/totp', totpRoutes)
+app.use('/api/settings', settingsRoutes)
+app.use('/api/access-requests', accessRequestsRoutes)
+app.use('/api/audit-logs', auditLogsRoutes)
+app.use('/api/push', pushRoutes)
 
 /**
  * health
@@ -235,5 +261,9 @@ app.use((req: Request, res: Response) => {
     error: `Route ${req.originalUrl} not found`,
   })
 })
+
+// Bootstrap Web Push and health monitoring services
+initWebPush();
+startHealthMonitor();
 
 export default app

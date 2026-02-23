@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export type UserRole = 'admin' | 'user';
+export type UserStatus = 'pending' | 'active' | 'rejected';
 
 export interface IUser extends Document {
     googleId: string;
@@ -8,6 +9,9 @@ export interface IUser extends Document {
     email: string;
     photo?: string;
     role: UserRole;
+    status: UserStatus;
+    accessExpiresAt?: Date;    // null = permanent
+    isTempAccess: boolean;
     totpSecret?: string;
     isTotpEnabled: boolean;
 }
@@ -18,6 +22,9 @@ const UserSchema: Schema = new Schema({
     email: { type: String, required: true },
     photo: { type: String },
     role: { type: String, enum: ['admin', 'user'], default: 'user' },
+    status: { type: String, enum: ['pending', 'active', 'rejected'], default: 'active' },
+    accessExpiresAt: { type: Date, default: null },
+    isTempAccess: { type: Boolean, default: false },
     totpSecret: { type: String },
     isTotpEnabled: { type: Boolean, default: false },
 }, {

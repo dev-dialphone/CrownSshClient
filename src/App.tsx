@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import PinEntry from "@/pages/PinEntry";
+import PendingApprovalScreen from "@/components/PendingApprovalScreen";
 
 // Loading fallback component (Used for auth loading)
 const LoadingScreen = () => (
@@ -14,21 +15,19 @@ const LoadingScreen = () => (
 );
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, error, checkAuth, isPinVerified } = useAuthStore();
-  
+  const { user, isLoading, error, checkAuth, isPinVerified, logout } = useAuthStore();
+
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
 
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
+  if (isLoading) return <LoadingScreen />;
 
   if (error && !user) {
     return (
       <div className="flex h-screen flex-col items-center justify-center bg-black text-white gap-4">
         <div className="text-red-500">Unable to verify session: {error}</div>
-        <button 
+        <button
           onClick={() => checkAuth()}
           className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 transition-colors"
         >
@@ -38,15 +37,20 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Check Auth first
-  if (!user) {
-    return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+
+  // Block pending/rejected users BEFORE showing the dashboard
+  if (user.role !== 'admin' && user.status && user.status !== 'active') {
+    return (
+      <PendingApprovalScreen
+        status={user.status as 'pending' | 'rejected'}
+        email={user.email}
+        onLogout={logout}
+      />
+    );
   }
 
-  // Then Check PIN
-  if (!isPinVerified) {
-    return <PinEntry />;
-  }
+  if (!isPinVerified) return <PinEntry />;
 
   return <>{children}</>;
 }
