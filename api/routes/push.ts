@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/requireAuth.js';
-import { requireRole } from '../middleware/requireRole.js';
+import { requireAuth, requireRole } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { PushSubscription } from '../models/PushSubscription.js';
 import { IUser } from '../models/User.js';

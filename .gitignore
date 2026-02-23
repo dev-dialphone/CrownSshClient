@@ -27,7 +27,7 @@ dist-ssr/
 *.sln
 *.sw?
 .trae/
-
+email/
 # Environment and Secrets
 .env
 .env.*

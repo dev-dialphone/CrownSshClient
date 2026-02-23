@@ -18,7 +18,8 @@ export function usePushNotifications() {
 
                 const { key } = await keyRes.json();
 
-                // Register service worker if not already registered
+                // Register our push service worker (serves push events)
+                await navigator.serviceWorker.register('/sw.js');
                 const registration = await navigator.serviceWorker.ready;
 
                 // Request notification permission
