@@ -141,6 +141,9 @@ export default function EmailSettingsPanel() {
         try {
             const updates: Record<string, unknown> = {};
             for (const [key, value] of Object.entries(settings)) {
+                if (key === 'smtpPassword' && value === '••••••••') {
+                    continue;
+                }
                 updates[`email.${key}`] = value;
             }
 
