@@ -198,8 +198,7 @@ export const VMList: React.FC = () => {
                 <Square size={16} className="text-zinc-600 flex-shrink-0" />
               )}
               <div className="truncate">
-                <div className="font-medium text-sm truncate">{vm.name || vm.ip}</div>
-                <div className="text-xs text-zinc-500 truncate">{vm.username}@{vm.ip}</div>
+                <div className="font-medium text-sm truncate">{vm.name || 'VM'}</div>
               </div>
             </div>
             {isAdmin && (

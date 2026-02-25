@@ -105,10 +105,7 @@ export const GlobalSearch: React.FC = () => {
                   >
                     <Server size={18} className="text-blue-500 shrink-0" />
                     <div className="overflow-hidden">
-                      <div className="font-medium text-sm md:text-base truncate text-white">{vm.name || vm.ip}</div>
-                      <div className="text-xs md:text-sm text-zinc-500 truncate">
-                        {vm.username}@{vm.ip} • Port {vm.port}
-                      </div>
+                      <div className="font-medium text-sm md:text-base truncate text-white">{vm.name || 'VM'}</div>
                     </div>
                   </button>
                 </li>
