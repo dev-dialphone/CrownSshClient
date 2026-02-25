@@ -225,7 +225,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
  */
 app.use('/api/auth', authLimiter, authRoutes)
 
-// Role-aware IP whitelist: Admins bypass it, regular users are blocked if not in ALLOWED_IPS
+// IP whitelist: Admins can access from anywhere, regular users restricted to ALLOWED_IPS
+// Auth routes are exempt to allow OAuth login flow
 app.use('/api', ipWhitelist);
 
 app.use('/api/vms', vmRoutes)
