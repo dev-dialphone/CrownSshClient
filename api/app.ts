@@ -202,11 +202,39 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
             });
           }
         } else {
-          // Check if a temporary user's access has expired
-          if (user.isTempAccess && user.accessExpiresAt && new Date() > user.accessExpiresAt) {
-            user.status = 'pending';
-            await user.save();
-            logger.info(`Temporary access expired for user: ${user.email}`);
+          // Handle existing user status changes
+          const existingUser = user;
+          const wasRejected = existingUser.status === 'rejected';
+          const wasExpired = existingUser.isTempAccess && existingUser.accessExpiresAt && new Date() > existingUser.accessExpiresAt;
+          
+          if (wasRejected) {
+            existingUser.status = 'pending';
+            await existingUser.save();
+            logger.info(`Rejected user re-requested access: ${existingUser.email}`);
+          } else if (wasExpired) {
+            existingUser.status = 'pending';
+            await existingUser.save();
+            logger.info(`Temporary access expired for user: ${existingUser.email}`);
+          }
+
+          // Send email notification if user re-requests access (was rejected, now pending)
+          if (wasRejected && existingUser.status === 'pending') {
+            emailService.getSettings().then(async (emailSettings) => {
+              if (emailSettings.enabled && emailSettings.notifyNewUser && emailSettings.recipients.length > 0) {
+                await emailService.enqueue(
+                  'USER_REQUEST',
+                  emailSettings.recipients,
+                  `User Re-requested Access: ${existingUser.displayName}`,
+                  'user-request',
+                  {
+                    userName: existingUser.displayName,
+                    userEmail: existingUser.email,
+                    requestedAt: new Date().toLocaleString(),
+                    dashboardUrl: process.env.FRONTEND_URL || '/',
+                  }
+                ).catch(err => logger.error('Failed to enqueue user re-request email:', err));
+              }
+            });
           }
         }
 
