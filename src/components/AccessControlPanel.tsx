@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Lock, Save, CheckCircle, Ban, UserCheck, UserX, RefreshCw } from 'lucide-react';
+import { Lock, Save, CheckCircle, Ban, UserCheck, UserX, RefreshCw, Shield, Users } from 'lucide-react';
 
 interface UserEntry {
     _id: string;
@@ -31,18 +31,22 @@ export default function AccessControlPanel() {
     const [loading, setLoading] = useState(true);
     const [selectedDuration, setSelectedDuration] = useState<Record<string, number | null>>({});
     const [approvalRequired, setApprovalRequired] = useState(false);
-    const [currentPin, setCurrentPin] = useState('');
-    const [newPin, setNewPin] = useState('');
-    const [pinSaving, setPinSaving] = useState(false);
-    const [pinSaved, setPinSaved] = useState(false);
+    const [currentUserPin, setCurrentUserPin] = useState('');
+    const [newUserPin, setNewUserPin] = useState('');
+    const [currentAdminPin, setCurrentAdminPin] = useState('');
+    const [newAdminPin, setNewAdminPin] = useState('');
+    const [userPinSaving, setUserPinSaving] = useState(false);
+    const [adminPinSaving, setAdminPinSaving] = useState(false);
+    const [userPinSaved, setUserPinSaved] = useState(false);
+    const [adminPinSaved, setAdminPinSaved] = useState(false);
 
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [usersRes, settingsRes, pinRes] = await Promise.all([
+            const [usersRes, settingsRes, pinsRes] = await Promise.all([
                 fetch('/api/access-requests'),
                 fetch('/api/settings'),
-                fetch('/api/auth/pin'),
+                fetch('/api/auth/pins'),
             ]);
             const [usersData, settingsData] = await Promise.all([
                 usersRes.json(),
@@ -50,10 +54,12 @@ export default function AccessControlPanel() {
             ]);
             setUsers(usersData);
             setApprovalRequired(settingsData.accessRequestsRequired || false);
-            if (pinRes.ok) {
-                const pinData = await pinRes.json();
-                setCurrentPin(pinData.pin || '');
-                setNewPin(pinData.pin || '');
+            if (pinsRes.ok) {
+                const pinsData = await pinsRes.json();
+                setCurrentUserPin(pinsData.userPin || '');
+                setNewUserPin(pinsData.userPin || '');
+                setCurrentAdminPin(pinsData.adminPin || '');
+                setNewAdminPin(pinsData.adminPin || '');
             }
         } finally {
             setLoading(false);
@@ -71,23 +77,43 @@ export default function AccessControlPanel() {
         });
     };
 
-    const savePin = async () => {
-        if (!newPin || newPin.length < 4) return;
-        setPinSaving(true);
-        setPinSaved(false);
+    const saveUserPin = async () => {
+        if (!newUserPin || newUserPin.length < 4) return;
+        setUserPinSaving(true);
+        setUserPinSaved(false);
         try {
-            const res = await fetch('/api/auth/pin', {
+            const res = await fetch('/api/auth/user-pin', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin: newPin }),
+                body: JSON.stringify({ pin: newUserPin }),
             });
             if (res.ok) {
-                setCurrentPin(newPin);
-                setPinSaved(true);
-                setTimeout(() => setPinSaved(false), 3000);
+                setCurrentUserPin(newUserPin);
+                setUserPinSaved(true);
+                setTimeout(() => setUserPinSaved(false), 3000);
             }
         } finally {
-            setPinSaving(false);
+            setUserPinSaving(false);
+        }
+    };
+
+    const saveAdminPin = async () => {
+        if (!newAdminPin || newAdminPin.length < 4) return;
+        setAdminPinSaving(true);
+        setAdminPinSaved(false);
+        try {
+            const res = await fetch('/api/auth/admin-pin', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pin: newAdminPin }),
+            });
+            if (res.ok) {
+                setCurrentAdminPin(newAdminPin);
+                setAdminPinSaved(true);
+                setTimeout(() => setAdminPinSaved(false), 3000);
+            }
+        } finally {
+            setAdminPinSaving(false);
         }
     };
 
@@ -216,36 +242,68 @@ export default function AccessControlPanel() {
             </div>
 
             {/* Security PIN Section */}
-            <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800">
-                <div className="flex items-center gap-3 mb-4">
+            <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 space-y-4">
+                <div className="flex items-center gap-3">
                     <div className="p-2 bg-blue-500/20 rounded-lg">
                         <Lock size={18} className="text-blue-400" />
                     </div>
                     <div>
-                        <h3 className="text-sm font-semibold text-zinc-200">Security PIN</h3>
-                        <p className="text-xs text-zinc-500">Users must enter this PIN to access the dashboard after login</p>
+                        <h3 className="text-sm font-semibold text-zinc-200">Security PINs</h3>
+                        <p className="text-xs text-zinc-500">Separate PINs for admin and users to access the dashboard</p>
                     </div>
                 </div>
-                <div className="flex items-center gap-3">
-                    <input
-                        type="text"
-                        value={newPin}
-                        onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                        className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500 font-mono tracking-wider"
-                        placeholder="Enter PIN"
-                        maxLength={10}
-                    />
-                    <button
-                        onClick={savePin}
-                        disabled={pinSaving || newPin.length < 4 || newPin === currentPin}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
-                    >
-                        {pinSaving ? 'Saving...' : pinSaved ? <><CheckCircle size={16} /> Saved</> : <><Save size={16} /> Save</>}
-                    </button>
+                
+                {/* User PIN */}
+                <div className="bg-zinc-800/50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Users size={14} className="text-green-400" />
+                        <span className="text-xs font-medium text-zinc-300">User PIN</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            value={newUserPin}
+                            onChange={(e) => setNewUserPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                            className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500 font-mono tracking-wider"
+                            placeholder="User PIN"
+                            maxLength={10}
+                        />
+                        <button
+                            onClick={saveUserPin}
+                            disabled={userPinSaving || newUserPin.length < 4 || newUserPin === currentUserPin}
+                            className="px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg text-sm transition-colors flex items-center gap-1.5"
+                        >
+                            {userPinSaving ? 'Saving...' : userPinSaved ? <><CheckCircle size={14} /> Saved</> : <><Save size={14} /> Save</>}
+                        </button>
+                    </div>
+                    {userPinSaved && <p className="text-xs text-green-400 mt-1.5">User PIN updated!</p>}
                 </div>
-                {pinSaved && (
-                    <p className="text-xs text-green-400 mt-2">PIN updated successfully!</p>
-                )}
+                
+                {/* Admin PIN */}
+                <div className="bg-zinc-800/50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Shield size={14} className="text-amber-400" />
+                        <span className="text-xs font-medium text-zinc-300">Admin PIN</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            value={newAdminPin}
+                            onChange={(e) => setNewAdminPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                            className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500 font-mono tracking-wider"
+                            placeholder="Admin PIN"
+                            maxLength={10}
+                        />
+                        <button
+                            onClick={saveAdminPin}
+                            disabled={adminPinSaving || newAdminPin.length < 4 || newAdminPin === currentAdminPin}
+                            className="px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg text-sm transition-colors flex items-center gap-1.5"
+                        >
+                            {adminPinSaving ? 'Saving...' : adminPinSaved ? <><CheckCircle size={14} /> Saved</> : <><Save size={14} /> Save</>}
+                        </button>
+                    </div>
+                    {adminPinSaved && <p className="text-xs text-green-400 mt-1.5">Admin PIN updated!</p>}
+                </div>
             </div>
 
             {/* Pending Users */}

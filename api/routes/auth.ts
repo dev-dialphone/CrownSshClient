@@ -11,8 +11,8 @@ import { Setting } from '../models/Setting.js';
 
 const router = Router();
 
-const getRequiredPin = async (): Promise<string> => {
-    const setting = await Setting.findOne({ key: 'requiredPin' });
+const getUserPin = async (): Promise<string> => {
+    const setting = await Setting.findOne({ key: 'userPin' });
     if (setting && typeof setting.value === 'string') {
         return setting.value;
     }
@@ -20,6 +20,17 @@ const getRequiredPin = async (): Promise<string> => {
         throw new Error('VITE_REQUIRED_PIN is not configured');
     }
     return process.env.VITE_REQUIRED_PIN;
+};
+
+const getAdminPin = async (): Promise<string> => {
+    const setting = await Setting.findOne({ key: 'adminPin' });
+    if (setting && typeof setting.value === 'string') {
+        return setting.value;
+    }
+    if (!process.env.VITE_ADMIN_PIN) {
+        throw new Error('VITE_ADMIN_PIN is not configured');
+    }
+    return process.env.VITE_ADMIN_PIN;
 };
 
 // Google Auth Trigger
@@ -137,10 +148,12 @@ router.put('/users/:id/role', requireAuth, requireRole('admin'), asyncHandler(as
   });
 }));
 
-// Verify PIN
+// Verify PIN (uses appropriate PIN based on user role)
 router.post('/verify-pin', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const user = req.user as IUser;
   const { pin } = req.body;
-  const requiredPin = await getRequiredPin();
+  
+  const requiredPin = user.role === 'admin' ? await getAdminPin() : await getUserPin();
   
   if (pin === requiredPin) {
     res.json({ success: true });
@@ -149,13 +162,76 @@ router.post('/verify-pin', requireAuth, asyncHandler(async (req: Request, res: R
   }
 }));
 
-// Get PIN setting (admin only)
-router.get('/pin', requireAuth, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
-  const pin = await getRequiredPin();
-  res.json({ pin });
+// Get both PINs (admin only)
+router.get('/pins', requireAuth, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+  const userPin = await getUserPin();
+  const adminPin = await getAdminPin();
+  res.json({ userPin, adminPin });
 }));
 
-// Update PIN (admin only)
+// Update User PIN (admin only)
+router.put('/user-pin', requireAuth, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+  const actor = req.user as IUser;
+  const { pin } = req.body;
+  
+  if (!pin || typeof pin !== 'string' || pin.length < 4) {
+    res.status(400).json({ error: 'PIN must be at least 4 characters' });
+    return;
+  }
+  
+  await Setting.findOneAndUpdate(
+    { key: 'userPin' },
+    { key: 'userPin', value: pin },
+    { upsert: true, new: true }
+  );
+  
+  await logEvent({
+    actorId: (actor as any)._id?.toString() || (actor as any).id,
+    actorEmail: actor.email,
+    actorRole: actor.role,
+    action: 'SETTING_UPDATED',
+    target: 'userPin',
+    metadata: { updated: true },
+  });
+  
+  res.json({ success: true, userPin: pin });
+}));
+
+// Update Admin PIN (admin only)
+router.put('/admin-pin', requireAuth, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+  const actor = req.user as IUser;
+  const { pin } = req.body;
+  
+  if (!pin || typeof pin !== 'string' || pin.length < 4) {
+    res.status(400).json({ error: 'PIN must be at least 4 characters' });
+    return;
+  }
+  
+  await Setting.findOneAndUpdate(
+    { key: 'adminPin' },
+    { key: 'adminPin', value: pin },
+    { upsert: true, new: true }
+  );
+  
+  await logEvent({
+    actorId: (actor as any)._id?.toString() || (actor as any).id,
+    actorEmail: actor.email,
+    actorRole: actor.role,
+    action: 'SETTING_UPDATED',
+    target: 'adminPin',
+    metadata: { updated: true },
+  });
+  
+  res.json({ success: true, adminPin: pin });
+}));
+
+// Legacy endpoint for backwards compatibility
+router.get('/pin', requireAuth, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+  const userPin = await getUserPin();
+  res.json({ pin: userPin });
+}));
+
+// Legacy endpoint for backwards compatibility
 router.put('/pin', requireAuth, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
   const actor = req.user as IUser;
   const { pin } = req.body;
@@ -166,8 +242,8 @@ router.put('/pin', requireAuth, requireRole('admin'), asyncHandler(async (req: R
   }
   
   await Setting.findOneAndUpdate(
-    { key: 'requiredPin' },
-    { key: 'requiredPin', value: pin },
+    { key: 'userPin' },
+    { key: 'userPin', value: pin },
     { upsert: true, new: true }
   );
   
@@ -176,7 +252,7 @@ router.put('/pin', requireAuth, requireRole('admin'), asyncHandler(async (req: R
     actorEmail: actor.email,
     actorRole: actor.role,
     action: 'SETTING_UPDATED',
-    target: 'requiredPin',
+    target: 'userPin',
     metadata: { updated: true },
   });
   
