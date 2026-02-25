@@ -127,7 +127,6 @@ export default function AccessControlPanel() {
 
     const pending = users.filter(u => u.status === 'pending');
     const active = users.filter(u => u.status === 'active');
-    const rejected = users.filter(u => u.status === 'rejected');
     const blocked = users.filter(u => u.status === 'blocked');
 
     const UserRow = ({ user, showActions = true }: { user: UserEntry; showActions?: boolean }) => (
@@ -181,16 +180,6 @@ export default function AccessControlPanel() {
                                 <RefreshCw size={12} /> <span className="hidden sm:inline">Revoke</span>
                             </button>
                             <button onClick={() => block(user._id)} className="text-xs px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-white transition-colors" title="Block">
-                                <Ban size={12} />
-                            </button>
-                        </>
-                    )}
-                    {user.status === 'rejected' && (
-                        <>
-                            <button onClick={() => approve(user._id)} className="text-xs px-2 py-1 bg-green-600 hover:bg-green-500 rounded text-white transition-colors flex items-center gap-1" title="Approve">
-                                <UserCheck size={12} /> <span className="hidden sm:inline">Approve</span>
-                            </button>
-                            <button onClick={() => block(user._id)} className="text-xs px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-white transition-colors" title="Block Permanently">
                                 <Ban size={12} />
                             </button>
                         </>
@@ -285,20 +274,6 @@ export default function AccessControlPanel() {
                 </div>
             )}
 
-            {/* Rejected Users */}
-            {rejected.length > 0 && (
-                <div>
-                    <h3 className="text-xs uppercase tracking-wider text-orange-500 font-semibold mb-3 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-orange-500" />
-                        Rejected ({rejected.length})
-                    </h3>
-                    <p className="text-xs text-zinc-500 mb-2">These users were rejected but can be approved later.</p>
-                    <div className="space-y-2">
-                        {rejected.map(u => <UserRow key={u._id} user={u} />)}
-                    </div>
-                </div>
-            )}
-
             {/* Blocked Users */}
             {blocked.length > 0 && (
                 <div>
@@ -313,7 +288,7 @@ export default function AccessControlPanel() {
                 </div>
             )}
 
-            {users.length === 0 && (
+            {pending.length === 0 && active.length === 0 && blocked.length === 0 && (
                 <div className="text-center text-zinc-600 text-sm py-10">No users have signed up yet.</div>
             )}
         </div>

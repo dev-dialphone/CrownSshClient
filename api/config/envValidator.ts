@@ -11,6 +11,7 @@ const envSchema = z.object({
     VITE_REQUIRED_PIN: z.string().min(4),
     GOOGLE_CLIENT_ID: z.string().min(1),
     GOOGLE_CLIENT_SECRET: z.string().min(1),
+    FRONTEND_URL: z.string().url(),
     // Optional but recommended
     LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
 });
