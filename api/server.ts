@@ -7,7 +7,8 @@ import { initWebSocket } from './services/socketService.js';
 import connectDB from './config/db.js';
 import mongoose from 'mongoose';
 import { connection as redisConnection } from './config/redis.js';
-import './workers/executionWorker.js'; // Start the worker
+import './workers/executionWorker.js';
+import './workers/emailWorker.js';
 import logger from './utils/logger.js';
 
 /**

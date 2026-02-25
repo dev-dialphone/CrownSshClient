@@ -89,24 +89,24 @@ export const EnvironmentSelector: React.FC = () => {
     <>
       <div className="w-full md:w-64 bg-zinc-950 border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col h-full">
         {/* User Info Section */}
-        <div className="p-4 border-b border-zinc-800 bg-zinc-900/30">
-          <div className="flex items-center gap-3">
+        <div className="p-3 md:p-4 border-b border-zinc-800 bg-zinc-900/30">
+          <div className="flex items-center gap-2 md:gap-3">
             {user?.photos?.[0]?.value ? (
-              <img src={user.photos[0].value} alt="User" className="w-8 h-8 rounded-full border border-zinc-700" />
+              <img src={user.photos[0].value} alt="User" className="w-8 h-8 rounded-full border border-zinc-700 flex-shrink-0" />
             ) : (
-              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">
+              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
                 {user?.displayName?.charAt(0) || 'U'}
               </div>
             )}
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-medium truncate">{user?.displayName || 'User'}</span>
-                <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${isAdmin ? 'bg-amber-500/20 text-amber-400' : 'bg-zinc-700/50 text-zinc-400'
+                <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 ${isAdmin ? 'bg-amber-500/20 text-amber-400' : 'bg-zinc-700/50 text-zinc-400'
                   }`}>
                   {user?.role || 'user'}
                 </span>
               </div>
-              <div className="flex items-center gap-2 mt-0.5">
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                 {isAdmin && (
                   <>
                     <button
@@ -116,7 +116,7 @@ export const EnvironmentSelector: React.FC = () => {
                       title={user?.isTotpEnabled ? '2FA Enabled' : 'Setup 2FA'}
                     >
                       {user?.isTotpEnabled ? <ShieldCheck size={10} /> : <Shield size={10} />}
-                      {user?.isTotpEnabled ? '2FA On' : '2FA'}
+                      <span className="hidden sm:inline">{user?.isTotpEnabled ? '2FA On' : '2FA'}</span>
                     </button>
                     {user?.isTotpEnabled && (
                       <button

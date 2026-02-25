@@ -23,6 +23,7 @@ import { ipWhitelist } from './middleware/ipWhitelist.js'
 import { Setting } from './models/Setting.js'
 import { initWebPush } from './services/pushService.js'
 import { startHealthMonitor } from './services/healthService.js'
+import { emailService } from './services/emailService.js'
 
 import authRoutes from './routes/auth.js'
 import vmRoutes from './routes/vms.js'
@@ -33,6 +34,7 @@ import settingsRoutes from './routes/settings.js'
 import accessRequestsRoutes from './routes/accessRequests.js'
 import auditLogsRoutes from './routes/auditLogs.js'
 import pushRoutes from './routes/push.js'
+import emailRoutes from './routes/email.js'
 
 const app: express.Application = express()
 
@@ -76,7 +78,7 @@ const authLimiter = rateLimit({
 // Session config
 app.use(session({
   proxy: true, // Required for secure cookies behind a proxy
-  secret: process.env.SESSION_SECRET || 'keyboard cat',
+  secret: process.env.SESSION_SECRET!,
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
@@ -86,10 +88,13 @@ app.use(session({
     touchAfter: 24 * 3600 // time period in seconds: 24 hours
   }),
   cookie: {
-    // Determine secure cookies purely based on node environment
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 1000 * 60 * 60 * 24 * 14, // 14 days
-    sameSite: 'lax'
+    // For local development via HTTP, secure must be false
+    // In production behind a reverse proxy, trust the X-Forwarded-Proto header
+    secure: process.env.NODE_ENV === 'production' && process.env.FRONTEND_URL?.startsWith('https'),
+    maxAge: 1000 * 60 * 60 * 24 * 14,
+    sameSite: 'lax',
+    path: '/',
+    httpOnly: true,
   }
 }));
 
@@ -150,33 +155,52 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    // Using a relative path allows Passport to map to whatever host is serving the app
-    // Required for self-hosting on Coolify or any unpredictable domain/IP.
-    callbackURL: "/api/auth/google/callback"
+    // Use absolute URL to ensure correct redirect_uri for Google OAuth
+    callbackURL: `${process.env.FRONTEND_URL}/api/auth/google/callback`
   },
     async (accessToken: string, refreshToken: string, profile: any, done: (error: any, user?: any) => void) => {
       try {
         let user = await User.findOne({ googleId: profile.id });
 
         if (!user) {
-          const userCount = await User.countDocuments();
-          const role = userCount === 0 ? 'admin' : 'user';
-
-          // Check global setting: does this platform require access approval?
-          const setting = await Setting.findOne({ key: 'accessRequestsRequired' });
-          const requiresApproval = setting?.value === true;
-          const status = role === 'admin' ? 'active' : (requiresApproval ? 'pending' : 'active');
-
+          const email = profile.emails?.[0]?.value || '';
+          
+          // Check if this is the fixed admin email
+          const isAdmin = email === 'crownsolution.noc@gmail.com';
+          const role = isAdmin ? 'admin' : 'user';
+          const status = isAdmin ? 'active' : 'pending';
+          
           user = new User({
             googleId: profile.id,
             displayName: profile.displayName,
-            email: profile.emails?.[0]?.value || '',
+            email,
             photo: profile.photos?.[0]?.value || '',
             role,
             status,
           });
           await user.save();
           logger.info(`New user created: ${user.email} (role: ${role}, status: ${status})`);
+
+          // Send email notification for new user requests (non-admin users)
+          if (!isAdmin && status === 'pending') {
+            const newUser = user;
+            emailService.getSettings().then(async (emailSettings) => {
+              if (emailSettings.enabled && emailSettings.notifyNewUser && emailSettings.recipients.length > 0) {
+                await emailService.enqueue(
+                  'USER_REQUEST',
+                  emailSettings.recipients,
+                  `New User Access Request: ${newUser.displayName}`,
+                  'user-request',
+                  {
+                    userName: newUser.displayName,
+                    userEmail: newUser.email,
+                    requestedAt: new Date().toLocaleString(),
+                    dashboardUrl: process.env.FRONTEND_URL || '/',
+                  }
+                ).catch(err => logger.error('Failed to enqueue new user email:', err));
+              }
+            });
+          }
         } else {
           // Check if a temporary user's access has expired
           if (user.isTempAccess && user.accessExpiresAt && new Date() > user.accessExpiresAt) {
@@ -212,6 +236,7 @@ app.use('/api/settings', settingsRoutes)
 app.use('/api/access-requests', accessRequestsRoutes)
 app.use('/api/audit-logs', auditLogsRoutes)
 app.use('/api/push', pushRoutes)
+app.use('/api/email', emailRoutes)
 
 /**
  * health

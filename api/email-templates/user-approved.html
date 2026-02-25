@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Approved</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0a0a0a;">
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #0a0a0a;">
+        
+        <div style="text-align: center; padding: 20px 0; border-bottom: 1px solid #27272a;">
+            <h1 style="color: #3b82f6; margin: 0; font-size: 24px;">SSH Manager</h1>
+            <p style="color: #71717a; margin: 5px 0 0 0; font-size: 12px;">Crown Solutions</p>
+        </div>
+        
+        <div style="padding: 30px 0;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <span style="display: inline-block; width: 60px; height: 60px; line-height: 60px; background-color: #16a34a; border-radius: 50%; font-size: 30px;">✅</span>
+            </div>
+            
+            <h2 style="color: #ffffff; text-align: center; margin: 0 0 20px 0; font-size: 20px;">Access Approved</h2>
+            
+            <div style="background-color: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                <p style="color: #a1a1aa; margin: 0 0 15px 0;">
+                    Hello <strong style="color: #ffffff;">{{userName}}</strong>,
+                </p>
+                <p style="color: #ffffff; margin: 0 0 15px 0;">
+                    Your access request for SSH Manager has been <strong style="color: #22c55e;">approved</strong>!
+                </p>
+                <p style="color: #a1a1aa; margin: 0 0 15px 0;">
+                    You can now log in with your Google account to access the platform.
+                </p>
+                {{#if expiresAt}}
+                <div style="background-color: #27272a; border-radius: 6px; padding: 12px; margin-top: 15px;">
+                    <p style="color: #eab308; margin: 0; font-size: 13px;">
+                        ⏰ Your access expires on: <strong>{{expiresAt}}</strong>
+                    </p>
+                </div>
+                {{/if}}
+            </div>
+            
+            <div style="text-align: center; margin: 25px 0;">
+                <a href="{{loginUrl}}" style="display: inline-block; padding: 12px 30px; background-color: #3b82f6; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">
+                    Login to SSH Manager
+                </a>
+            </div>
+            
+            <p style="color: #71717a; font-size: 14px; margin: 0;">
+                If you have any questions, please contact the administrator.
+            </p>
+        </div>
+        
+        <div style="text-align: center; padding: 20px 0; border-top: 1px solid #27272a; color: #52525b; font-size: 11px;">
+            <p style="margin: 0;">This is an automated notification from SSH Manager.</p>
+            <p style="margin: 5px 0 0 0;">Crown Solutions NOC System</p>
+        </div>
+        
+    </div>
+</body>
+</html>

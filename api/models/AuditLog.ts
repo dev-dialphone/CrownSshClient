@@ -14,6 +14,8 @@ export type AuditAction =
     | 'USER_APPROVED'
     | 'USER_REJECTED'
     | 'USER_REVOKED'
+    | 'USER_BLOCKED'
+    | 'USER_UNBLOCKED'
     | 'SETTING_UPDATED';
 
 export interface IAuditLog extends Document {

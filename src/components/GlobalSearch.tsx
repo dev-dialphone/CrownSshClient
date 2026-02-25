@@ -70,28 +70,29 @@ export const GlobalSearch: React.FC = () => {
   };
 
   return (
-    <div className="relative w-full max-w-md" ref={searchRef}>
+    <div className="relative w-full" ref={searchRef}>
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-zinc-500" size={16} />
+        <Search className="absolute left-3 md:left-4 top-1/2 transform -translate-y-1/2 text-zinc-500" size={18} />
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search VMs (name, ip, username)..."
-          className="w-full bg-zinc-900 border border-zinc-700 rounded-full pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+          placeholder="Search VMs by name, IP, username..."
+          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-10 md:pl-12 pr-10 md:pr-12 py-3 md:py-3.5 text-sm md:text-base text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-zinc-600"
+          autoFocus
         />
         {query && (
           <button 
             onClick={() => setQuery('')}
-            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-zinc-500 hover:text-white"
+            className="absolute right-3 md:right-4 top-1/2 transform -translate-y-1/2 text-zinc-500 hover:text-white p-1"
           >
-            <X size={14} />
+            <X size={18} />
           </button>
         )}
       </div>
 
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl z-50 max-h-[60vh] overflow-y-auto">
           {loading ? (
             <div className="p-4 text-center text-zinc-500 text-sm">Searching...</div>
           ) : results.length > 0 ? (
@@ -100,12 +101,12 @@ export const GlobalSearch: React.FC = () => {
                 <li key={vm.id}>
                   <button
                     onClick={() => handleSelect(vm)}
-                    className="w-full text-left p-3 hover:bg-zinc-800 flex items-center gap-3 border-b border-zinc-800/50 last:border-0"
+                    className="w-full text-left p-3 md:p-4 hover:bg-zinc-800 flex items-center gap-3 border-b border-zinc-800/50 last:border-0 first:rounded-t-xl last:rounded-b-xl"
                   >
-                    <Server size={16} className="text-blue-500 shrink-0" />
+                    <Server size={18} className="text-blue-500 shrink-0" />
                     <div className="overflow-hidden">
-                      <div className="font-medium text-sm truncate text-white">{vm.name || vm.ip}</div>
-                      <div className="text-xs text-zinc-500 truncate">
+                      <div className="font-medium text-sm md:text-base truncate text-white">{vm.name || vm.ip}</div>
+                      <div className="text-xs md:text-sm text-zinc-500 truncate">
                         {vm.username}@{vm.ip} • Port {vm.port}
                       </div>
                     </div>

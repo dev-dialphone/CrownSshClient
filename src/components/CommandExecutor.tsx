@@ -120,39 +120,40 @@ export const CommandExecutor: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 flex-1 min-w-0">
-      <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
-          <TerminalIcon size={20} /> {activeVM ? `Terminal: ${activeVM.name}` : 'Execution'}
+      <div className="p-3 md:p-4 border-b border-zinc-800 flex items-center justify-between gap-2">
+        <h2 className="text-base md:text-lg font-semibold flex items-center gap-2 truncate">
+          <TerminalIcon size={18} className="flex-shrink-0" /> 
+          <span className="truncate">{activeVM ? `Terminal: ${activeVM.name}` : 'Execution'}</span>
         </h2>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 md:gap-2 flex-shrink-0">
           <button
             onClick={clearLogs}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 rounded transition-colors"
+            className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1.5 text-xs md:text-sm bg-zinc-800 hover:bg-zinc-700 rounded transition-colors"
           >
-            <RotateCcw size={16} /> Clear Logs
+            <RotateCcw size={14} /> <span className="hidden sm:inline">Clear</span>
           </button>
           <button
             onClick={handleExecute}
             disabled={isExecuting || selectedVmIds.length === 0}
-            className="flex items-center gap-2 px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded transition-colors whitespace-nowrap"
+            className="flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 text-xs md:text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded transition-colors whitespace-nowrap"
           >
-            <Play size={16} /> {isExecuting ? 'Running...' : `Run (${selectedVmIds.length})`}
+            <Play size={14} /> {isExecuting ? 'Running...' : `Run (${selectedVmIds.length})`}
           </button>
         </div>
       </div>
 
-      <div className="p-4 space-y-4 flex-shrink-0">
+      <div className="p-3 md:p-4 space-y-3 md:space-y-4 flex-shrink-0">
         <div>
           <label className="block text-xs font-medium text-zinc-500 mb-1 uppercase tracking-wider">Command</label>
           {isAdmin ? (
             <>
               <textarea
-                className="w-full bg-zinc-900 border border-zinc-800 rounded p-3 text-sm font-mono focus:outline-none focus:border-blue-500 transition-colors h-24"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded p-2 md:p-3 text-xs md:text-sm font-mono focus:outline-none focus:border-blue-500 transition-colors h-20 md:h-24"
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
               />
-              <div className="flex items-center justify-between mt-2">
-                <p className="text-xs text-zinc-500">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-2 gap-2">
+                <p className="text-xs text-zinc-500 hidden sm:block">
                   Tip: Use <code className="bg-zinc-800 px-1 rounded text-zinc-300">{"{{PASSWORD}}"}</code> as a placeholder.
                 </p>
                 <div className="flex gap-2">
@@ -160,19 +161,19 @@ export const CommandExecutor: React.FC = () => {
                     onClick={() => setCommand(command + "{{PASSWORD}}")}
                     className="text-xs px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 transition-colors"
                   >
-                    + Insert Password
+                    + Password
                   </button>
                   <button
                     onClick={() => setCommand(DEFAULT_COMMAND)}
                     className="text-xs px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 transition-colors"
                   >
-                    Reset Default
+                    Reset
                   </button>
                 </div>
               </div>
             </>
           ) : (
-            <div className="bg-zinc-900/50 border border-zinc-800 rounded p-3 text-xs font-mono text-zinc-400 break-all">
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded p-2 md:p-3 text-xs font-mono text-zinc-400 break-all">
               <div className="select-none text-zinc-600 mb-1 uppercase text-[10px] tracking-wider font-bold">Executing Command:</div>
               {command}
             </div>
@@ -182,18 +183,21 @@ export const CommandExecutor: React.FC = () => {
 
       <div className="flex-1 flex flex-col min-h-0 bg-black border-t border-zinc-800 min-w-0">
         <div className="flex flex-col border-b border-zinc-900 bg-zinc-900/50 w-full">
-          <div className="flex items-center justify-between px-4 py-2">
-            <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Terminal Output</span>
-            <div className="flex gap-4">
-              {selectedVMs.map((vm) => (
-                <div key={vm.id} className="flex items-center gap-1.5 text-xs">
+          <div className="flex items-center justify-between px-3 md:px-4 py-2">
+            <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Output</span>
+            <div className="flex gap-2 md:gap-4 overflow-x-auto no-scrollbar">
+              {selectedVMs.slice(0, 3).map((vm) => (
+                <div key={vm.id} className="flex items-center gap-1.5 text-xs flex-shrink-0">
                   <div className={`w-2 h-2 rounded-full ${statuses[vm.id] === 'running' ? 'bg-blue-500 animate-pulse' :
                     statuses[vm.id] === 'success' ? 'bg-green-500' :
                       statuses[vm.id] === 'error' ? 'bg-red-500' : 'bg-zinc-600'
                     }`} />
-                  <span className="text-zinc-400">{statuses[vm.id] || 'pending'}</span>
+                  <span className="text-zinc-400 truncate max-w-[60px] md:max-w-none">{vm.name}</span>
                 </div>
               ))}
+              {selectedVMs.length > 3 && (
+                <span className="text-xs text-zinc-600">+{selectedVMs.length - 3}</span>
+              )}
             </div>
           </div>
 
@@ -204,17 +208,17 @@ export const CommandExecutor: React.FC = () => {
                 <button
                   key={vm.id}
                   onClick={() => setActiveTerminalVmId(vm.id)}
-                  className={`px-4 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${activeTerminalVmId === vm.id
+                  className={`px-3 md:px-4 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${activeTerminalVmId === vm.id
                     ? 'border-blue-500 text-blue-400 bg-blue-500/5'
                     : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
                     }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 md:gap-2">
                     <div className={`w-1.5 h-1.5 rounded-full ${statuses[vm.id] === 'running' ? 'bg-blue-500 animate-pulse' :
                       statuses[vm.id] === 'success' ? 'bg-green-500' :
                         statuses[vm.id] === 'error' ? 'bg-red-500' : 'bg-zinc-600'
                       }`} />
-                    {vm.name}
+                    <span className="truncate max-w-[80px] md:max-w-none">{vm.name}</span>
                   </div>
                 </button>
               ))}

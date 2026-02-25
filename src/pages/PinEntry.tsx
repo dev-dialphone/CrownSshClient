@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { Lock } from 'lucide-react';
+import { Lock, Loader } from 'lucide-react';
 
 const PinEntry: React.FC = () => {
   const { verifyPin } = useAuthStore();
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (verifyPin(pin)) {
+    setIsLoading(true);
+    const success = await verifyPin(pin);
+    setIsLoading(false);
+    if (success) {
       setError(false);
     } else {
       setError(true);
@@ -43,6 +47,7 @@ const PinEntry: React.FC = () => {
               placeholder="••••••"
               maxLength={6}
               autoFocus
+              disabled={isLoading}
             />
           </div>
           
@@ -52,9 +57,11 @@ const PinEntry: React.FC = () => {
 
           <button
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition-colors"
+            disabled={isLoading || pin.length < 4}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
-            Unlock
+            {isLoading ? <Loader className="animate-spin" size={18} /> : null}
+            {isLoading ? 'Verifying...' : 'Unlock'}
           </button>
         </form>
       </div>

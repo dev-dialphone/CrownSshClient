@@ -9,11 +9,10 @@ interface AuthState {
   isAdmin: boolean;
   checkAuth: () => Promise<void>;
   logout: () => Promise<void>;
-  verifyPin: (pin: string) => boolean;
+  verifyPin: (pin: string) => Promise<boolean>;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || '';
-const REQUIRED_PIN = import.meta.env.VITE_REQUIRED_PIN || '676869';
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
@@ -25,7 +24,6 @@ export const useAuthStore = create<AuthState>((set) => ({
   checkAuth: async () => {
     try {
       set({ isLoading: true, error: null });
-      // Include credentials to send cookies
       const res = await fetch(`${API_URL}/api/auth/me`, {
         credentials: 'include'
       });
@@ -60,11 +58,24 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  verifyPin: (pin: string) => {
-    if (pin === REQUIRED_PIN) {
-      set({ isPinVerified: true });
-      return true;
+  verifyPin: async (pin: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/verify-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ pin }),
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        set({ isPinVerified: true });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('PIN verification failed', error);
+      return false;
     }
-    return false;
   }
 }));

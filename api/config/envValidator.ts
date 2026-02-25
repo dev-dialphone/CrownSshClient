@@ -8,7 +8,7 @@ const envSchema = z.object({
     SESSION_SECRET: z.string().min(10),
     REDIS_HOST: z.string().min(1).default('redis'),
     ENCRYPTION_KEY: z.string().length(64),
-    VITE_REQUIRED_PIN: z.string().min(4).default('676869'),
+    VITE_REQUIRED_PIN: z.string().min(4),
     GOOGLE_CLIENT_ID: z.string().min(1),
     GOOGLE_CLIENT_SECRET: z.string().min(1),
     // Optional but recommended

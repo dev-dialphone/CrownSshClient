@@ -39,11 +39,11 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  // Block pending/rejected users BEFORE showing the dashboard
+  // Block pending/rejected/blocked users BEFORE showing the dashboard
   if (user.role !== 'admin' && user.status && user.status !== 'active') {
     return (
       <PendingApprovalScreen
-        status={user.status as 'pending' | 'rejected'}
+        status={user.status as 'pending' | 'rejected' | 'blocked'}
         email={user.email}
         onLogout={logout}
       />

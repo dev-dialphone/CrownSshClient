@@ -5,19 +5,21 @@ import { CommandExecutor } from "@/components/CommandExecutor";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import AccessControlPanel from "@/components/AccessControlPanel";
 import AuditLogView from "@/components/AuditLogView";
+import EmailSettings from "@/components/EmailSettings";
 import { useVMStore } from "../store/vmStore";
 import { useEnvStore } from "../store/envStore";
 import { useAuthStore } from "../store/authStore";
 import { usePushNotifications } from "../hooks/usePushNotifications";
-import { Layers, Server, Terminal, Users, ScrollText } from "lucide-react";
+import { Layers, Server, Terminal, Users, ScrollText, Mail, Search } from "lucide-react";
 
-type TabId = 'env' | 'vm' | 'exec' | 'access' | 'logs';
+type TabId = 'env' | 'vm' | 'exec' | 'access' | 'logs' | 'email' | 'search';
 
 interface TabConfig {
   id: TabId;
   label: string;
   icon: React.ReactNode;
   adminOnly: boolean;
+  mobileOnly?: boolean;
 }
 
 const TABS: TabConfig[] = [
@@ -26,6 +28,8 @@ const TABS: TabConfig[] = [
   { id: 'exec', label: 'Exec', icon: <Terminal size={20} />, adminOnly: false },
   { id: 'access', label: 'Access', icon: <Users size={20} />, adminOnly: true },
   { id: 'logs', label: 'Logs', icon: <ScrollText size={20} />, adminOnly: true },
+  { id: 'email', label: 'Email', icon: <Mail size={20} />, adminOnly: true },
+  { id: 'search', label: 'Search', icon: <Search size={20} />, adminOnly: false, mobileOnly: true },
 ];
 
 export default function Home() {
@@ -49,9 +53,9 @@ export default function Home() {
     <div className="flex flex-col h-screen bg-black text-white overflow-hidden font-sans">
 
       {/* Top Bar */}
-      <div className="h-14 border-b border-zinc-800 flex items-center px-4 bg-zinc-950 shrink-0">
-        <div className="font-bold text-lg mr-8 tracking-tight text-zinc-200">SSH<span className="text-blue-500">Manager</span></div>
-        <div className="flex-1 max-w-2xl mx-auto">
+      <div className="h-14 border-b border-zinc-800 flex items-center px-3 md:px-4 bg-zinc-950 shrink-0">
+        <div className="font-bold text-base md:text-lg tracking-tight text-zinc-200">SSH<span className="text-blue-500">Manager</span></div>
+        <div className="flex-1 max-w-2xl mx-auto hidden md:block">
           <GlobalSearch />
         </div>
 
@@ -73,26 +77,49 @@ export default function Home() {
               >
                 <ScrollText size={16} /> Logs
               </button>
+              <button
+                onClick={() => setActiveTab('email')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'email' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  }`}
+              >
+                <Mail size={16} /> Email
+              </button>
             </>
           )}
+        </div>
+
+        {/* Mobile Search Toggle */}
+        <div className="flex-1 flex justify-end md:hidden">
+          <button
+            onClick={() => setActiveTab(activeTab === 'search' ? 'env' : 'search')}
+            className={`p-2 rounded-lg transition-colors ${activeTab === 'search' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400'}`}
+          >
+            <Search size={20} />
+          </button>
         </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
-        {/* Admin Panels (Desktop & Mobile) */}
-        {isAdmin && (activeTab === 'access' || activeTab === 'logs') ? (
+        {/* Mobile Search Panel */}
+        {activeTab === 'search' ? (
+          <div className="flex-1 flex flex-col h-full bg-black overflow-hidden p-4">
+            <GlobalSearch />
+          </div>
+        ) : /* Admin Panels (Desktop & Mobile) */
+        isAdmin && (activeTab === 'access' || activeTab === 'logs' || activeTab === 'email') ? (
           <div className="flex-1 flex flex-col h-full bg-black overflow-hidden relative">
-            <div className="absolute top-4 right-4 z-10">
+            <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
               <button
                 onClick={() => setActiveTab('env')}
-                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm transition-colors"
+                className="px-3 py-1.5 md:px-4 md:py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm transition-colors"
               >
-                ← Back to Dashboard
+                ← Back
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full">
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8">
               {activeTab === 'access' && <AccessControlPanel />}
               {activeTab === 'logs' && <AuditLogView />}
+              {activeTab === 'email' && <EmailSettings />}
             </div>
           </div>
         ) : (
@@ -113,7 +140,7 @@ export default function Home() {
 
       {/* Mobile Bottom Navigation */}
       <div className="md:hidden flex items-center justify-around bg-zinc-950 border-t border-zinc-800 p-2 shrink-0 z-50">
-        {visibleTabs.map(tab => (
+        {visibleTabs.filter(t => !t.mobileOnly).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}

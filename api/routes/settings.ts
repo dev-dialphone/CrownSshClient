@@ -32,7 +32,7 @@ router.patch('/:key', requireRole('admin'), asyncHandler(async (req, res) => {
     const { value } = req.body;
     const actor = req.user as IUser;
 
-    const allowed = ['accessRequestsRequired'];
+    const allowed = ['accessRequestsRequired', 'requiredPin'];
     if (!allowed.includes(key)) {
         res.status(400).json({ error: `Unknown setting: ${key}` });
         return;

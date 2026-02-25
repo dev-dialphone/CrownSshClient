@@ -2,9 +2,9 @@ import net from 'net';
 import cron from 'node-cron';
 import { VMModel } from '../models/VM.js';
 import { sendPushToAll } from './pushService.js';
+import { emailService } from './emailService.js';
 import logger from '../utils/logger.js';
 
-// Track which VMs have already triggered an alert to prevent notification spam
 const alertedVMs = new Set<string>();
 
 const checkVMPort = (ip: string, port: number, timeout = 5000): Promise<boolean> => {
@@ -19,12 +19,12 @@ const checkVMPort = (ip: string, port: number, timeout = 5000): Promise<boolean>
 };
 
 export const startHealthMonitor = () => {
-    // Run every 5 minutes
     cron.schedule('*/5 * * * *', async () => {
         logger.info('[HealthMonitor] Checking VM connectivity...');
 
         try {
             const vms = await VMModel.find({}).lean();
+            const settings = await emailService.getSettings();
 
             await Promise.allSettled(vms.map(async (vm) => {
                 const vmId = vm._id.toString();
@@ -40,8 +40,25 @@ export const startHealthMonitor = () => {
                         `"${label}" (${vm.ip}) is not responding on port ${vm.port || 22}.`,
                         { vmId, ip: vm.ip }
                     );
+
+                    if (settings.enabled && settings.notifyVmDown && settings.recipients.length > 0) {
+                        if (emailService.shouldSendVmAlert(vmId, settings.cooldownMinutes)) {
+                            emailService.markVmAlertSent(vmId);
+                            await emailService.enqueue(
+                                'VM_DOWN',
+                                settings.recipients,
+                                `⚠️ VM Unreachable: ${label}`,
+                                'vm-down',
+                                {
+                                    vmName: label,
+                                    vmIp: vm.ip,
+                                    vmPort: vm.port || 22,
+                                    detectedAt: new Date().toLocaleString(),
+                                }
+                            ).catch(err => logger.error('[HealthMonitor] Failed to enqueue VM down email:', err));
+                        }
+                    }
                 } else if (reachable && alertedVMs.has(vmId)) {
-                    // VM recovered — clear alert and notify
                     alertedVMs.delete(vmId);
                     logger.info(`[HealthMonitor] VM "${label}" recovered.`);
 
@@ -50,6 +67,22 @@ export const startHealthMonitor = () => {
                         `"${label}" (${vm.ip}) is responding again.`,
                         { vmId, ip: vm.ip }
                     );
+
+                    if (settings.enabled && settings.notifyVmRecovered && settings.recipients.length > 0) {
+                        emailService.clearVmAlertCooldown(vmId);
+                        await emailService.enqueue(
+                            'VM_RECOVERED',
+                            settings.recipients,
+                            `✅ VM Recovered: ${label}`,
+                            'vm-recovered',
+                            {
+                                vmName: label,
+                                vmIp: vm.ip,
+                                vmPort: vm.port || 22,
+                                recoveredAt: new Date().toLocaleString(),
+                            }
+                        ).catch(err => logger.error('[HealthMonitor] Failed to enqueue VM recovered email:', err));
+                    }
                 }
             }));
         } catch (err) {

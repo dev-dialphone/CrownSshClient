@@ -22,7 +22,7 @@ export interface User {
   email: string;
   photos?: { value: string }[];
   role: 'admin' | 'user';
-  status?: 'pending' | 'active' | 'rejected';
+  status?: 'pending' | 'active' | 'rejected' | 'blocked';
   accessExpiresAt?: string;
   isTotpEnabled?: boolean;
 }

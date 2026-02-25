@@ -98,29 +98,29 @@ export const VMList: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-zinc-900 text-zinc-100 border-b md:border-b-0 md:border-r border-zinc-800 w-full md:w-80">
-      <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Server size={20} /> VMs
+      <div className="p-3 md:p-4 border-b border-zinc-800 flex justify-between items-center gap-2">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <h2 className="text-base md:text-lg font-semibold flex items-center gap-2 flex-shrink-0">
+            <Server size={18} /> <span className="hidden sm:inline">VMs</span>
           </h2>
           {/* Smart Selection Toggle */}
           {vms.length > 0 && (
             <button
               onClick={handleToggleSelectAll}
-              className="flex items-center gap-1.5 text-zinc-500 hover:text-blue-400 transition-colors"
+              className="flex items-center gap-1 text-zinc-500 hover:text-blue-400 transition-colors flex-shrink-0"
               title={allSelected ? "Unselect All" : "Select All"}
             >
-              {allSelected ? <CheckSquare size={18} className="text-blue-500" /> : <Square size={18} />}
-              <span className="text-xs font-medium">{allSelected ? "Unselect All" : "Select All"}</span>
+              {allSelected ? <CheckSquare size={16} className="text-blue-500" /> : <Square size={16} />}
+              <span className="text-xs font-medium hidden sm:inline">{allSelected ? "Unselect" : "Select"}</span>
             </button>
           )}
         </div>
         {isAdmin && (
           <button
             onClick={() => { resetForm(); setIsEditing(!isEditing); }}
-            className={`p-1 rounded transition-colors ${isEditing && !editingId ? 'bg-zinc-700 text-white' : 'hover:bg-zinc-800'}`}
+            className={`p-1.5 rounded transition-colors flex-shrink-0 ${isEditing && !editingId ? 'bg-zinc-700 text-white' : 'hover:bg-zinc-800'}`}
           >
-            {isEditing && !editingId ? <X size={20} /> : <Plus size={20} />}
+            {isEditing && !editingId ? <X size={18} /> : <Plus size={18} />}
           </button>
         )}
       </div>
@@ -203,13 +203,13 @@ export const VMList: React.FC = () => {
               </div>
             </div>
             {isAdmin && (
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     updateVM(vm.id, { isPinned: !vm.isPinned });
                   }}
-                  className={`p-1 hover:text-yellow-400 transition-colors ${vm.isPinned ? 'text-yellow-500 opacity-100' : 'text-zinc-500'}`}
+                  className={`p-1 hover:text-yellow-400 transition-colors ${vm.isPinned ? 'text-yellow-500' : 'text-zinc-500'}`}
                   title={vm.isPinned ? "Unpin VM" : "Pin VM"}
                 >
                   <Pin size={14} fill={vm.isPinned ? "currentColor" : "none"} />

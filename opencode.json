@@ -1,0 +1,48 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "vertex-glm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Vertex AI GLM",
+      "options": {
+        "baseURL": "https://aiplatform.googleapis.com/v1beta1/projects/vertex-488023/locations/global/endpoints/openapi",
+        "apiKey": "{env:VERTEX_ACCESS_TOKEN}"
+      },
+      "models": {
+        "zai-org/glm-4.7-maas": {
+          "name": "GLM 4.7 (Vertex)"
+        },
+        "zai-org/glm-5-maas": {
+          "name": "GLM 5 (Vertex)"
+        }
+      }
+    },
+    "vertex-qwen": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Vertex AI Qwen",
+      "options": {
+        "baseURL": "https://us-south1-aiplatform.googleapis.com/v1beta1/projects/vertex-488023/locations/us-south1/endpoints/openapi",
+        "apiKey": "{env:VERTEX_ACCESS_TOKEN}"
+      },
+      "models": {
+        "qwen/qwen3-coder-480b-a35b-instruct-maas": {
+          "name": "Qwen3 Coder 480B (Vertex)"
+        }
+      }
+    },
+    "vertex-llama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Vertex AI Llama",
+      "options": {
+        "baseURL": "https://us-east5-aiplatform.googleapis.com/v1/projects/vertex-488023/locations/us-east5/endpoints/openapi",
+        "apiKey": "{env:VERTEX_ACCESS_TOKEN}"
+      },
+      "models": {
+        "meta/llama-4-maverick-17b-128e-instruct-maas": {
+          "name": "Llama 4 Maverick (Vertex)"
+        }
+      }
+    }
+  },
+  "model": "vertex-glm/zai-org/glm-5-maas"
+}
