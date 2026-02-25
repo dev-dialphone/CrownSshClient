@@ -40,7 +40,7 @@ router.post('/', validate(executeCommandSchema), asyncHandler(async (req, res) =
         actorEmail: user.email,
         actorRole: user.role,
         action: 'COMMAND_EXECUTED',
-        target: vm.name || vm.ip,
+        target: vm.name || 'VM',
         metadata: { command, vmId: vm.id }
       });
     }

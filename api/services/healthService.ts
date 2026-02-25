@@ -31,23 +31,23 @@ export const startHealthMonitor = () => {
 
             await Promise.allSettled(vms.map(async (vm) => {
                 const vmId = vm._id.toString();
-                const label = vm.name || vm.ip;
+                const label = vm.name || 'VM';
                 const reachable = await checkVMPort(vm.ip, vm.port || 22);
 
                 if (!reachable) {
                     const currentFailures = (failureCounts.get(vmId) || 0) + 1;
                     failureCounts.set(vmId, currentFailures);
                     
-                    logger.info(`[HealthMonitor] VM "${label}" (${vm.ip}) unreachable (attempt ${currentFailures}/${FAILURE_THRESHOLD})`);
+                    logger.info(`[HealthMonitor] VM "${label}" unreachable (attempt ${currentFailures}/${FAILURE_THRESHOLD})`);
 
                     if (currentFailures >= FAILURE_THRESHOLD && !alertedVMs.has(vmId)) {
                         alertedVMs.add(vmId);
-                        logger.warn(`[HealthMonitor] VM "${label}" (${vm.ip}:${vm.port}) confirmed DOWN after ${FAILURE_THRESHOLD} failures!`);
+                        logger.warn(`[HealthMonitor] VM "${label}" confirmed DOWN after ${FAILURE_THRESHOLD} failures!`);
 
                         await sendPushToAll(
                             '⚠️ VM Unreachable',
-                            `"${label}" (${vm.ip}) is not responding on port ${vm.port || 22}.`,
-                            { vmId, ip: vm.ip }
+                            `"${label}" is not responding.`,
+                            { vmId }
                         );
 
                         if (settings.enabled && settings.notifyVmDown && settings.recipients.length > 0) {
@@ -60,8 +60,6 @@ export const startHealthMonitor = () => {
                                     'vm-down',
                                     {
                                         vmName: label,
-                                        vmIp: vm.ip,
-                                        vmPort: vm.port || 22,
                                         detectedAt: new Date().toLocaleString(),
                                         consecutiveFailures: currentFailures,
                                     }
@@ -73,7 +71,7 @@ export const startHealthMonitor = () => {
                     const wasAlerted = alertedVMs.has(vmId);
                     
                     if (failureCounts.get(vmId) || wasAlerted) {
-                        logger.info(`[HealthMonitor] VM "${label}" (${vm.ip}) is reachable. Resetting failure count.`);
+                        logger.info(`[HealthMonitor] VM "${label}" is reachable. Resetting failure count.`);
                     }
                     
                     failureCounts.delete(vmId);
@@ -84,8 +82,8 @@ export const startHealthMonitor = () => {
 
                         await sendPushToAll(
                             '✅ VM Recovered',
-                            `"${label}" (${vm.ip}) is responding again.`,
-                            { vmId, ip: vm.ip }
+                            `"${label}" is responding again.`,
+                            { vmId }
                         );
 
                         if (settings.enabled && settings.notifyVmRecovered && settings.recipients.length > 0) {
@@ -97,8 +95,6 @@ export const startHealthMonitor = () => {
                                 'vm-recovered',
                                 {
                                     vmName: label,
-                                    vmIp: vm.ip,
-                                    vmPort: vm.port || 22,
                                     recoveredAt: new Date().toLocaleString(),
                                 }
                             ).catch(err => logger.error('[HealthMonitor] Failed to enqueue VM recovered email:', err));

@@ -12,15 +12,31 @@ const router = Router();
 // All VM routes require authentication
 router.use(requireAuth);
 
+// Helper to filter VM data based on user role
+const filterVMData = (vm: any, user: IUser) => {
+    if (user.role === 'admin') {
+        return vm;
+    }
+    // Regular users only see name and id
+    return {
+        id: vm.id,
+        name: vm.name,
+        environmentId: vm.environmentId,
+        isPinned: vm.isPinned
+    };
+};
+
 // GET: Any authenticated user can list VMs
 router.get('/', asyncHandler(async (req, res) => {
   const environmentId = req.query.environmentId as string | undefined;
   const search = req.query.search as string | undefined;
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 20;
+  const user = req.user as IUser;
 
   const result = await vmService.getAll(environmentId, search, page, limit);
-  res.json(result);
+  const filteredData = result.data.map(vm => filterVMData(vm, user));
+  res.json({ data: filteredData, total: result.total });
 }));
 
 // POST: Admin only
@@ -33,8 +49,8 @@ router.post('/', requireRole('admin'), validate(createVMSchema), asyncHandler(as
     actorEmail: user.email,
     actorRole: user.role,
     action: 'VM_CREATED',
-    target: newVM.name || newVM.ip,
-    metadata: { vmId: newVM.id, ip: newVM.ip }
+    target: newVM.name || 'VM',
+    metadata: { vmId: newVM.id }
   });
   
   res.json(newVM);
@@ -54,7 +70,7 @@ router.put('/:id', requireRole('admin'), validate(updateVMSchema), asyncHandler(
     actorEmail: user.email,
     actorRole: user.role,
     action: 'VM_UPDATED',
-    target: updatedVM.name || updatedVM.ip,
+    target: updatedVM.name || 'VM',
     metadata: { vmId: updatedVM.id, changes: req.body }
   });
   
@@ -76,7 +92,7 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     actorEmail: user.email,
     actorRole: user.role,
     action: 'VM_DELETED',
-    target: vm?.name || vm?.ip || req.params.id,
+    target: vm?.name || 'VM',
     metadata: { vmId: req.params.id }
   });
   
