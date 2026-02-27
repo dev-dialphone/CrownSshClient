@@ -520,7 +520,8 @@ router.put('/:id/password/manual',
       let openSIPSMessage = '';
       if (isOSIPS) {
         logger.info(`Detected OpenSIPS VM, updating admin password in MySQL...`);
-        const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vm, newPassword, {
+        const vmWithNewPassword = { ...vm, password: newPassword };
+        const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
           mysqlPassword: vm.username,
           adminUsername: OPEN_SIPS_CONFIG.adminUsername,
         });
@@ -661,7 +662,8 @@ router.post('/:id/password/auto-reset',
       let openSIPSMessage = '';
       if (isOSIPS) {
         logger.info(`Detected OpenSIPS VM, updating admin password in MySQL...`);
-        const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vm, newPassword, {
+        const vmWithNewPassword = { ...vm, password: newPassword };
+        const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
           mysqlPassword: vm.username,
           adminUsername: OPEN_SIPS_CONFIG.adminUsername,
         });
@@ -790,7 +792,8 @@ router.post('/passwords/bulk-update',
 
         if (await isOpenSIPSVM(vm)) {
           logger.info(`Detected OpenSIPS VM in bulk update, updating admin password in MySQL...`);
-          const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vm, newPassword, {
+          const vmWithNewPassword = { ...vm, password: newPassword };
+          const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
             mysqlPassword: vm.username,
             adminUsername: OPEN_SIPS_CONFIG.adminUsername,
           });
@@ -931,7 +934,8 @@ router.post('/environments/:envId/passwords/bulk-update',
 
         if (await isOpenSIPSVM(vm)) {
           logger.info(`Detected OpenSIPS VM in environment bulk update, updating admin password in MySQL...`);
-          const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vm, newPassword, {
+          const vmWithNewPassword = { ...vm, password: newPassword };
+          const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
             mysqlPassword: vm.username,
             adminUsername: OPEN_SIPS_CONFIG.adminUsername,
           });
