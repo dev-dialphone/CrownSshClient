@@ -270,10 +270,34 @@ router.put('/:id/password/manual',
         }
       }
       
+      const changeResult = await sshService.changePassword(vm, newPassword);
+      if (!changeResult.success) {
+        await vmService.addPasswordHistory({
+          vmId: vm.id,
+          vmName: vm.name,
+          vmIp: vm.ip,
+          vmUsername: vm.username,
+          newPassword,
+          oldPassword,
+          operationType: 'manual',
+          changedBy: user.email,
+          changedById: adminId,
+          success: false,
+          errorMessage: changeResult.message,
+        });
+        await releasePasswordLock(vm.id);
+        res.status(400).json({ 
+          error: 'Failed to change password on VM', 
+          message: changeResult.message,
+          requiresManual: changeResult.requiresManual 
+        });
+        return;
+      }
+      
       const updatedVM = await vmService.updatePassword(vm.id, newPassword);
       if (!updatedVM) {
         await releasePasswordLock(vm.id);
-        res.status(500).json({ error: 'Failed to update password in database' });
+        res.status(500).json({ error: 'Password changed on VM but failed to update database. Please update manually.' });
         return;
       }
       
@@ -492,6 +516,27 @@ router.post('/passwords/bulk-update',
         }
 
         const oldPassword = vm.password;
+        
+        const changeResult = await sshService.changePassword(vm, newPassword);
+        if (!changeResult.success) {
+          await vmService.addPasswordHistory({
+            vmId: vm.id,
+            vmName: vm.name,
+            vmIp: vm.ip,
+            vmUsername: vm.username,
+            newPassword,
+            oldPassword,
+            operationType: 'manual',
+            changedBy: user.email,
+            changedById: adminId,
+            success: false,
+            errorMessage: changeResult.message,
+          });
+          results.push({ vmId: vm.id, vmName: vm.name, success: false, error: changeResult.message });
+          await releasePasswordLock(vm.id);
+          continue;
+        }
+
         await vmService.updatePassword(vm.id, newPassword);
 
         await vmService.addPasswordHistory({
@@ -601,6 +646,27 @@ router.post('/environments/:envId/passwords/bulk-update',
         }
 
         const oldPassword = vm.password;
+        
+        const changeResult = await sshService.changePassword(vm, newPassword);
+        if (!changeResult.success) {
+          await vmService.addPasswordHistory({
+            vmId: vm.id,
+            vmName: vm.name,
+            vmIp: vm.ip,
+            vmUsername: vm.username,
+            newPassword,
+            oldPassword,
+            operationType: 'manual',
+            changedBy: user.email,
+            changedById: adminId,
+            success: false,
+            errorMessage: changeResult.message,
+          });
+          results.push({ vmId: vm.id, vmName: vm.name, success: false, error: changeResult.message });
+          await releasePasswordLock(vm.id);
+          continue;
+        }
+
         await vmService.updatePassword(vm.id, newPassword);
 
         await vmService.addPasswordHistory({

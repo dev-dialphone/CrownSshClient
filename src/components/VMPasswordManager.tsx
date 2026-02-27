@@ -425,11 +425,11 @@ export default function VMPasswordManager() {
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
         <div className="flex items-center gap-2">
           <Layers size={18} className="text-purple-400" />
-          <h3 className="text-sm font-semibold text-zinc-300">Bulk Password Update (All VMs)</h3>
+          <h3 className="text-sm font-semibold text-zinc-300">Change Password on All VMs</h3>
         </div>
         
         <div className="bg-purple-500/10 border border-purple-500/20 rounded p-3 text-xs text-purple-400">
-          This will update the password for ALL {allVMs.length} VMs with the same password.
+          This will change the password on ALL {allVMs.length} VMs via SSH and update the database.
         </div>
         
         <div className="space-y-3">
@@ -521,7 +521,7 @@ export default function VMPasswordManager() {
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
         <div className="flex items-center gap-2">
           <Layers size={18} className="text-cyan-400" />
-          <h3 className="text-sm font-semibold text-zinc-300">Bulk Password Update (By Environment)</h3>
+          <h3 className="text-sm font-semibold text-zinc-300">Change Password by Environment</h3>
         </div>
         
         <div className="space-y-3">
@@ -547,7 +547,7 @@ export default function VMPasswordManager() {
           {envBulkEnvId && selectedEnvGroup && (
             <>
               <div className="bg-cyan-500/10 border border-cyan-500/20 rounded p-3 text-xs text-cyan-400">
-                This will update the password for {selectedEnvVMCount} VMs in "{selectedEnvGroup.environmentName}".
+                This will change the password on {selectedEnvVMCount} VMs in "{selectedEnvGroup.environmentName}" via SSH.
               </div>
               
               <div>
@@ -716,7 +716,8 @@ export default function VMPasswordManager() {
           </div>
           
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
-            <h3 className="text-sm font-semibold text-zinc-300">Manual Password Update</h3>
+            <h3 className="text-sm font-semibold text-zinc-300">Change Password on VM</h3>
+            <p className="text-xs text-zinc-500">This will change the password on the VM via SSH and update the database.</p>
             
             <div className="space-y-3">
               <div>
