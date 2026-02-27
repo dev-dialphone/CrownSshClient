@@ -10,6 +10,7 @@ import { IUser } from '../models/User.js';
  * - Users with pending/rejected/blocked status: blocked regardless of IP
  * - If ALLOWED_IPS is empty/not set: allow all IPs (open mode)
  * - Auth routes (/api/auth/*) are exempt to allow OAuth login flow
+ * - Docker internal IPs and localhost are always allowed
  */
 export const ipWhitelist = (req: Request, res: Response, next: NextFunction): void => {
     const user = req.user as IUser | undefined;
@@ -44,12 +45,19 @@ export const ipWhitelist = (req: Request, res: Response, next: NextFunction): vo
     // Normalize IPv6-mapped IPv4 (::ffff:1.2.3.4 → 1.2.3.4)
     const normalizedIp = clientIp.replace(/^::ffff:/, '');
 
+    // Always allow localhost and Docker internal IPs
+    const localhostIPs = ['127.0.0.1', '::1', 'localhost'];
+    const dockerIPPattern = /^10\.\d+\.\d+\.\d+$/;
+    
+    if (localhostIPs.includes(normalizedIp) || dockerIPPattern.test(normalizedIp)) {
+        return next();
+    }
+
     if (allowedIps.includes(normalizedIp)) return next();
 
     logger.warn(`Blocked request from unauthorized IP: ${normalizedIp} (user: ${user?.email ?? 'unauthenticated'})`);
     res.status(403).json({ 
         error: 'IP_NOT_AUTHORIZED', 
         message: 'Access denied. Your IP is not authorized.',
-        ip: normalizedIp 
     });
 };

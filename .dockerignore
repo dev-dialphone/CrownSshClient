@@ -29,10 +29,6 @@ logs
 *.log
 npm-debug.log*
 
-# Lock files (use bun.lock inside container if needed)
-package-lock.json
-bun.lock
-
 # Mongo dump data
 mongo_dump
 data

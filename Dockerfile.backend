@@ -1,18 +1,34 @@
-# Dockerfile for Backend
 FROM node:18-alpine
+
+ARG BACKEND_PORT
+ARG VITE_REQUIRED_PIN
+ARG VITE_ADMIN_PIN
+ARG GOOGLE_CLIENT_ID
+ARG GOOGLE_CLIENT_SECRET
+ARG FRONTEND_URL
+ARG mongo
+ARG ENCRYPTION_KEY
+ARG SESSION_SECRET
+ARG ALLOWED_IPS
+ARG SMTP_HOST
+ARG SMTP_PORT
+ARG SMTP_USER
+ARG SMTP_PASSWORD
+ARG SMTP_FROM_NAME
+ARG SMTP_FROM_EMAIL
+ARG PORT
+ARG NODE_ENV
+ARG REDIS_HOST
 
 WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm install
+RUN npm ci && npm cache clean --force
 
 COPY . .
 
-# Environment variables will be overridden by docker-compose or .env
-# Default to 7002 if not provided, but the code will use process.env.PORT
 ENV PORT=7002
 EXPOSE $PORT
 
-# We use tsx to run the typescript file directly
 CMD ["npx", "tsx", "api/server.ts"]

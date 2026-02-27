@@ -88,9 +88,7 @@ app.use(session({
     touchAfter: 24 * 3600 // time period in seconds: 24 hours
   }),
   cookie: {
-    // For local development via HTTP, secure must be false
-    // In production behind a reverse proxy, trust the X-Forwarded-Proto header
-    secure: process.env.NODE_ENV === 'production' && process.env.FRONTEND_URL?.startsWith('https'),
+    secure: true,
     maxAge: 1000 * 60 * 60 * 24 * 14,
     sameSite: 'lax',
     path: '/',
