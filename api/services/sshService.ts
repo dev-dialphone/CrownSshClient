@@ -101,42 +101,62 @@ export const sshService = {
     return new Promise((resolve) => {
       const conn = new Client();
       
-      const escapedPassword = newPassword.replace(/'/g, "'\"'\"'");
-      const currentPassword = vm.password || '';
-      const escapedCurrentPassword = currentPassword.replace(/'/g, "'\"'\"'");
       const username = vm.username;
+      const currentPassword = vm.password || '';
       
       // Try multiple methods to change password
-      // Method 1: User changing own password (no sudo needed)
-      // Method 2: Using sudo with chpasswd
-      // Method 3: Using sudo with passwd --stdin
-      // Method 4: Using sudo with interactive passwd
+      // For systems where root password = user password
       const commands = [
-        // Method 1: User changes own password (interactive passwd)
-        `printf '%s\\n%s\\n%s\\n' '${escapedCurrentPassword}' '${escapedPassword}' '${escapedPassword}' | passwd 2>&1`,
-        // Method 2: sudo with chpasswd
-        `echo '${escapedCurrentPassword}' | sudo -S sh -c 'echo "${username}:${escapedPassword}" | chpasswd' 2>&1`,
-        // Method 3: sudo with passwd --stdin (CentOS/RHEL)
-        `echo '${escapedCurrentPassword}' | sudo -S passwd --stdin ${username} <<< '${escapedPassword}' 2>&1`,
-        // Method 4: sudo with interactive passwd (Debian/Ubuntu)
-        `echo '${escapedCurrentPassword}' | sudo -S sh -c 'printf "%s\\n%s\\n" "${escapedPassword}" "${escapedPassword}" | passwd ${username}' 2>&1`,
+        // Method 1: User changes own password via passwd (most reliable)
+        // Uses heredoc to avoid shell escaping issues
+        `passwd << 'PASSWORDEOF'
+${currentPassword}
+${newPassword}
+${newPassword}
+PASSWORDEOF`,
+
+        // Method 2: Use su to become root (when root password = user password)
+        // Then change password using passwd
+        `su -c 'echo "${username}:${newPassword}" | chpasswd' root << 'SUROOTEOF'
+${currentPassword}
+SUROOTEOF`,
+
+        // Method 3: Use sudo with -S flag and heredoc
+        `sudo -S sh << 'SUDOEOF'
+${currentPassword}
+echo "${username}:${newPassword}" | chpasswd 2>/dev/null || printf '%s\n%s\n' '${newPassword}' '${newPassword}' | passwd ${username}
+SUDOEOF`,
+
+        // Method 4: Direct root approach via su - with passwd
+        `su - root << 'SUEOF'
+${currentPassword}
+printf '%s\n%s\n' '${newPassword}' '${newPassword}' | passwd ${username}
+SUEOF`,
+
+        // Method 5: passwd with echo and pipe (fallback)
+        `echo -e "${currentPassword}\n${newPassword}\n${newPassword}" | passwd 2>&1`,
       ];
       
-      const tryCommand = (commandIndex: number) => {
-        if (commandIndex >= commands.length) {
+      let currentCommandIndex = 0;
+      
+      const tryCommand = () => {
+        if (currentCommandIndex >= commands.length) {
+          conn.end();
           resolve({
             success: false,
-            message: 'All password change methods failed. The user may not have sufficient privileges, or required tools (chpasswd/passwd) are not available.',
+            message: 'All password change methods failed. The user may not have sufficient privileges, or password tools are not available. Try changing the password manually via VM console.',
             requiresManual: true,
           });
           return;
         }
         
-        const command = commands[commandIndex];
+        const command = commands[currentCommandIndex];
+        logger.debug(`Trying password method ${currentCommandIndex + 1} for VM ${vm.name || vm.ip}`);
         
         conn.exec(command, (err, stream) => {
           if (err) {
-            tryCommand(commandIndex + 1);
+            currentCommandIndex++;
+            tryCommand();
             return;
           }
           
@@ -153,7 +173,10 @@ export const sshService = {
             const fullOutput = output + stderr;
             const fullOutputLower = fullOutput.toLowerCase();
             
-            // Check for success
+            // Log for debugging
+            logger.debug(`Method ${currentCommandIndex + 1} output: ${fullOutput.substring(0, 500)}`);
+            
+            // Check for success indicators
             const hasSuccess = 
               fullOutputLower.includes('password updated') ||
               fullOutputLower.includes('password changed') ||
@@ -161,28 +184,35 @@ export const sshService = {
               fullOutputLower.includes('all authentication tokens updated') ||
               fullOutputLower.includes('passwd: password updated') ||
               fullOutputLower.includes('passwd: all authentication tokens updated') ||
-              (code === 0 && !fullOutputLower.includes('error') && !fullOutputLower.includes('failed') && 
-               !fullOutputLower.includes('incorrect') && !fullOutputLower.includes('denied') && 
-               !fullOutputLower.includes('sorry') && !fullOutputLower.includes('not found'));
+              fullOutputLower.includes('changing password for') && !fullOutputLower.includes('failed') ||
+              (code === 0 && 
+               !fullOutputLower.includes('error') && 
+               !fullOutputLower.includes('failed') && 
+               !fullOutputLower.includes('incorrect') && 
+               !fullOutputLower.includes('denied') && 
+               !fullOutputLower.includes('sorry') && 
+               !fullOutputLower.includes('not found') &&
+               !fullOutputLower.includes('authentication failure') &&
+               !fullOutputLower.includes('no password'));
             
             if (hasSuccess) {
               conn.end();
-              logger.info(`Password changed successfully for VM ${vm.name || vm.ip} using method ${commandIndex + 1}`);
+              logger.info(`Password changed successfully for VM ${vm.name || vm.ip} using method ${currentCommandIndex + 1}`);
               resolve({
                 success: true,
                 message: 'Password changed successfully on VM',
               });
             } else {
-              logger.debug(`Password method ${commandIndex + 1} failed: ${fullOutput}`);
-              tryCommand(commandIndex + 1);
+              currentCommandIndex++;
+              tryCommand();
             }
           });
         });
       };
       
       conn.on('ready', () => {
-        logger.info(`Attempting password change for VM ${vm.name || vm.ip}`);
-        tryCommand(0);
+        logger.info(`Attempting password change for VM ${vm.name || vm.ip} (user: ${username})`);
+        tryCommand();
       }).on('error', (err) => {
         resolve({
           success: false,
