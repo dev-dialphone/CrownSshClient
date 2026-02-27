@@ -220,10 +220,11 @@ router.get('/:id/password/rate-limit',
     const vmId = req.params.id;
     const user = req.user as IUser;
     const adminId = (user as any)._id?.toString() || (user as any).id;
+    const isAdmin = user.role === 'admin';
     
     const [manualInfo, autoInfo] = await Promise.all([
-      getPasswordRateLimitInfo(vmId, adminId, 'manual'),
-      getPasswordRateLimitInfo(vmId, adminId, 'auto'),
+      getPasswordRateLimitInfo(vmId, adminId, 'manual', isAdmin),
+      getPasswordRateLimitInfo(vmId, adminId, 'auto', isAdmin),
     ]);
     
     res.json({ manual: manualInfo, auto: autoInfo });
@@ -433,6 +434,117 @@ router.post('/:id/password/auto-reset',
     } finally {
       await releasePasswordLock(vm.id);
     }
+  })
+);
+
+// Bulk password update for all VMs
+router.post('/passwords/bulk-update',
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const { newPassword, testConnection = true, vmIds } = req.body;
+    const user = req.user as IUser;
+    const adminId = (user as any)._id?.toString() || (user as any).id;
+
+    if (!newPassword || newPassword.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters' });
+      return;
+    }
+
+    let targetVmIds: string[] = vmIds;
+    if (!targetVmIds || targetVmIds.length === 0) {
+      const allVMsResult = await vmService.getAll();
+      targetVmIds = allVMsResult.data.map(v => v.id);
+    }
+
+    if (targetVmIds.length === 0) {
+      res.status(400).json({ error: 'No VMs found to update' });
+      return;
+    }
+
+    const results: Array<{
+      vmId: string;
+      vmName: string;
+      success: boolean;
+      error?: string;
+    }> = [];
+
+    for (const vmId of targetVmIds) {
+      const vm = await vmService.getById(vmId);
+      if (!vm) {
+        results.push({ vmId, vmName: 'Unknown', success: false, error: 'VM not found' });
+        continue;
+      }
+
+      const lockAcquired = await acquirePasswordLock(vm.id);
+      if (!lockAcquired) {
+        results.push({ vmId: vm.id, vmName: vm.name, success: false, error: 'Operation in progress' });
+        continue;
+      }
+
+      try {
+        if (testConnection) {
+          const connTest = await sshService.testConnection(vm);
+          if (!connTest.success) {
+            results.push({ vmId: vm.id, vmName: vm.name, success: false, error: connTest.message });
+            await releasePasswordLock(vm.id);
+            continue;
+          }
+        }
+
+        const oldPassword = vm.password;
+        await vmService.updatePassword(vm.id, newPassword);
+
+        await vmService.addPasswordHistory({
+          vmId: vm.id,
+          vmName: vm.name,
+          vmIp: vm.ip,
+          vmUsername: vm.username,
+          newPassword,
+          oldPassword,
+          operationType: 'manual',
+          changedBy: user.email,
+          changedById: adminId,
+          success: true,
+        });
+
+        results.push({ vmId: vm.id, vmName: vm.name, success: true });
+      } catch (error) {
+        results.push({ 
+          vmId: vm.id, 
+          vmName: vm.name, 
+          success: false, 
+          error: (error as Error).message 
+        });
+      } finally {
+        await releasePasswordLock(vm.id);
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.length - successCount;
+
+    await logEvent({
+      actorId: adminId,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: 'VM_PASSWORD_CHANGED',
+      target: 'Bulk Update',
+      metadata: { 
+        totalVMs: targetVmIds.length, 
+        successCount, 
+        failCount,
+        method: 'bulk_manual' 
+      }
+    });
+
+    res.json({
+      success: true,
+      newPassword,
+      total: results.length,
+      successCount,
+      failCount,
+      results,
+    });
   })
 );
 

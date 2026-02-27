@@ -11,12 +11,14 @@ import {
   CheckCircle, 
   XCircle,
   Copy,
-  Loader2
+  Loader2,
+  Layers
 } from 'lucide-react';
 
 interface RateLimitInfo {
   vmRemaining: number;
   adminRemaining: number;
+  isAdmin?: boolean;
 }
 
 interface PasswordHistoryEntry {
@@ -31,6 +33,13 @@ interface PasswordHistoryEntry {
   success: boolean;
   errorMessage?: string;
   createdAt: string;
+}
+
+interface BulkResult {
+  vmId: string;
+  vmName: string;
+  success: boolean;
+  error?: string;
 }
 
 export default function VMPasswordManager() {
@@ -49,6 +58,7 @@ export default function VMPasswordManager() {
   
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [previewPassword, setPreviewPassword] = useState<string | null>(null);
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [manualRateLimit, setManualRateLimit] = useState<RateLimitInfo | null>(null);
   const [autoRateLimit, setAutoRateLimit] = useState<RateLimitInfo | null>(null);
@@ -60,6 +70,12 @@ export default function VMPasswordManager() {
   
   const [history, setHistory] = useState<PasswordHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  const [bulkPassword, setBulkPassword] = useState('');
+  const [bulkPreviewPassword, setBulkPreviewPassword] = useState<string | null>(null);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkResults, setBulkResults] = useState<BulkResult[] | null>(null);
+  const [bulkTestConnection, setBulkTestConnection] = useState(true);
   
   useEffect(() => {
     fetchVMGroups();
@@ -129,21 +145,33 @@ export default function VMPasswordManager() {
     }
   };
   
-  const generateRandomPassword = () => {
+  const generateRandomPassword = (length: number = 16, special: boolean = true): string => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const special = '!@#$%^&*()_+-=[]{}|;:,.<>?';
-    const allChars = includeSpecialChars ? chars + special : chars;
+    const specialChars = '!@#$%^&*()_+-=[]{}|;:,.<>?';
+    const allChars = special ? chars + specialChars : chars;
     
     let password = '';
-    const array = new Uint32Array(autoResetLength);
+    const array = new Uint32Array(length);
     window.crypto.getRandomValues(array);
     
-    for (let i = 0; i < autoResetLength; i++) {
+    for (let i = 0; i < length; i++) {
       password += allChars[array[i] % allChars.length];
     }
     
-    setNewPassword(password);
-    setConfirmPassword(password);
+    return password;
+  };
+  
+  const handlePreviewPassword = () => {
+    const generated = generateRandomPassword(autoResetLength, includeSpecialChars);
+    setPreviewPassword(generated);
+    setNewPassword(generated);
+    setConfirmPassword(generated);
+  };
+  
+  const handlePreviewBulkPassword = () => {
+    const generated = generateRandomPassword(16, true);
+    setBulkPreviewPassword(generated);
+    setBulkPassword(generated);
   };
   
   const handleManualUpdate = async (testFirst: boolean) => {
@@ -169,6 +197,7 @@ export default function VMPasswordManager() {
         alert('Password updated successfully');
         setNewPassword('');
         setConfirmPassword('');
+        setPreviewPassword(null);
         fetchVMGroups(true);
         loadRateLimitInfo();
         loadHistory();
@@ -221,6 +250,49 @@ export default function VMPasswordManager() {
     }
   };
   
+  const handleBulkUpdate = async () => {
+    if (!bulkPassword || bulkPassword.length < 6) {
+      alert('Password must be at least 6 characters');
+      return;
+    }
+    
+    if (!confirm(`This will change the password for ALL ${allVMs.length} VMs. Continue?`)) {
+      return;
+    }
+    
+    setBulkUpdating(true);
+    setBulkResults(null);
+    
+    try {
+      const res = await fetch('/api/vms/passwords/bulk-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          newPassword: bulkPassword, 
+          testConnection: bulkTestConnection 
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setBulkResults(data.results);
+        setBulkPassword('');
+        setBulkPreviewPassword(null);
+        fetchVMGroups(true);
+        loadHistory();
+        alert(`Bulk update complete: ${data.successCount} succeeded, ${data.failCount} failed`);
+      } else {
+        alert(data.message || data.error);
+      }
+    } catch {
+      alert('Failed to update passwords');
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+  
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
@@ -249,6 +321,28 @@ export default function VMPasswordManager() {
     return new Date(date).toLocaleString();
   };
 
+  const renderRateLimitText = (info: RateLimitInfo | null, type: 'manual' | 'auto') => {
+    if (!info) return null;
+    
+    if (info.isAdmin) {
+      return (
+        <div className="text-xs text-green-400 pt-2 border-t border-zinc-800">
+          No rate limit for admin
+        </div>
+      );
+    }
+    
+    const limits = type === 'manual' 
+      ? { vm: 5, admin: 20 }
+      : { vm: 3, admin: 10 };
+    
+    return (
+      <div className="text-xs text-zinc-500 pt-2 border-t border-zinc-800">
+        Rate limits: {info.vmRemaining}/{limits.vm} {type} changes per VM, {info.adminRemaining}/{limits.admin} per admin (hourly)
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -263,14 +357,112 @@ export default function VMPasswordManager() {
         </div>
       </div>
       
+      {/* Bulk Password Update Section */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <Layers size={18} className="text-purple-400" />
+          <h3 className="text-sm font-semibold text-zinc-300">Bulk Password Update (All VMs)</h3>
+        </div>
+        
+        <div className="bg-purple-500/10 border border-purple-500/20 rounded p-3 text-xs text-purple-400">
+          This will update the password for ALL {allVMs.length} VMs with the same password.
+        </div>
+        
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">New Password for All VMs</label>
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={bulkPassword}
+                  onChange={(e) => setBulkPassword(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-purple-500 pr-10"
+                  placeholder="Enter password for all VMs"
+                />
+                <button
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              <button
+                onClick={handlePreviewBulkPassword}
+                className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors whitespace-nowrap"
+              >
+                Generate
+              </button>
+            </div>
+          </div>
+          
+          {bulkPreviewPassword && (
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded p-3">
+              <div className="text-xs text-zinc-400 mb-1">Generated Password Preview:</div>
+              <div className="flex items-center gap-2">
+                <code className="text-base font-mono text-zinc-200">{bulkPreviewPassword}</code>
+                <button
+                  onClick={() => copyToClipboard(bulkPreviewPassword)}
+                  className="p-1 text-zinc-400 hover:text-zinc-200"
+                >
+                  <Copy size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+          
+          <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <input
+              type="checkbox"
+              checked={bulkTestConnection}
+              onChange={(e) => setBulkTestConnection(e.target.checked)}
+              className="rounded border-zinc-700"
+            />
+            Test connection before updating
+          </label>
+          
+          <button
+            onClick={handleBulkUpdate}
+            disabled={bulkUpdating || !bulkPassword || bulkPassword.length < 6}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
+          >
+            {bulkUpdating ? <Loader2 size={14} className="animate-spin" /> : <Layers size={14} />}
+            Update All {allVMs.length} VMs
+          </button>
+          
+          {bulkResults && (
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded p-3 max-h-60 overflow-y-auto">
+              <div className="text-xs text-zinc-400 mb-2">Results:</div>
+              <div className="space-y-1">
+                {bulkResults.map((result) => (
+                  <div key={result.vmId} className="flex items-center gap-2 text-xs">
+                    {result.success ? (
+                      <CheckCircle size={12} className="text-green-400" />
+                    ) : (
+                      <XCircle size={12} className="text-red-400" />
+                    )}
+                    <span className="text-zinc-200">{result.vmName}</span>
+                    {!result.success && result.error && (
+                      <span className="text-red-400">- {result.error}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Single VM Selection */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <label className="block text-xs font-medium text-zinc-500 mb-2">Select VM</label>
+        <label className="block text-xs font-medium text-zinc-500 mb-2">Select Single VM</label>
         <select
           value={selectedVmId}
           onChange={(e) => {
             setSelectedVmId(e.target.value);
             setConnectionStatus('idle');
             setGeneratedPassword(null);
+            setPreviewPassword(null);
           }}
           className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
         >
@@ -337,11 +529,7 @@ export default function VMPasswordManager() {
               )}
             </div>
             
-            {manualRateLimit && (
-              <div className="text-xs text-zinc-500 pt-2 border-t border-zinc-800">
-                Rate limits: {manualRateLimit.vmRemaining}/5 manual changes per VM, {manualRateLimit.adminRemaining}/20 per admin (hourly)
-              </div>
-            )}
+            {renderRateLimitText(manualRateLimit, 'manual')}
           </div>
           
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
@@ -351,31 +539,74 @@ export default function VMPasswordManager() {
               <div>
                 <label className="block text-xs text-zinc-500 mb-1">New Password</label>
                 <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="flex-1 bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                    placeholder="Enter new password"
-                  />
+                  <div className="flex-1 relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => {
+                        setNewPassword(e.target.value);
+                        setPreviewPassword(null);
+                      }}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                      placeholder="Enter new password"
+                    />
+                  </div>
                   <button
-                    onClick={generateRandomPassword}
-                    className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors"
+                    onClick={handlePreviewPassword}
+                    className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors whitespace-nowrap"
                   >
                     Generate
                   </button>
                 </div>
               </div>
+
+              {previewPassword && (
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded p-3">
+                  <div className="text-xs text-blue-400 mb-1">Generated Password Preview:</div>
+                  <div className="flex items-center gap-2">
+                    <code className="text-base font-mono text-blue-300">{previewPassword}</code>
+                    <button
+                      onClick={() => copyToClipboard(previewPassword)}
+                      className="p-1 text-blue-400 hover:text-blue-300"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
               
               <div>
                 <label className="block text-xs text-zinc-500 mb-1">Confirm Password</label>
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
                   placeholder="Confirm new password"
                 />
+              </div>
+              
+              <div className="flex items-center gap-4 text-sm">
+                <label className="flex items-center gap-2 text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={includeSpecialChars}
+                    onChange={(e) => setIncludeSpecialChars(e.target.checked)}
+                    className="rounded border-zinc-700"
+                  />
+                  Special chars
+                </label>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Length</label>
+                  <input
+                    type="number"
+                    value={autoResetLength}
+                    onChange={(e) => setAutoResetLength(Math.max(8, Math.min(64, parseInt(e.target.value) || 16)))}
+                    className="w-16 bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500"
+                    min={8}
+                    max={64}
+                  />
+                </div>
               </div>
               
               <div className="flex gap-2">
@@ -408,37 +639,13 @@ export default function VMPasswordManager() {
               Warning: This will change the password directly on the VM. Make sure you have console access as backup.
             </div>
             
-            <div className="flex items-center gap-4">
-              <div>
-                <label className="block text-xs text-zinc-500 mb-1">Password Length</label>
-                <input
-                  type="number"
-                  value={autoResetLength}
-                  onChange={(e) => setAutoResetLength(Math.max(8, Math.min(64, parseInt(e.target.value) || 16)))}
-                  className="w-20 bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                  min={8}
-                  max={64}
-                />
-              </div>
-              
-              <label className="flex items-center gap-2 text-sm text-zinc-300">
-                <input
-                  type="checkbox"
-                  checked={includeSpecialChars}
-                  onChange={(e) => setIncludeSpecialChars(e.target.checked)}
-                  className="rounded border-zinc-700"
-                />
-                Include special characters
-              </label>
-            </div>
-            
             <button
               onClick={handleAutoReset}
               disabled={autoResetting}
               className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
             >
               {autoResetting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              Reset Password
+              Reset Password on VM
             </button>
             
             {generatedPassword && (
@@ -459,11 +666,7 @@ export default function VMPasswordManager() {
               </div>
             )}
             
-            {autoRateLimit && (
-              <div className="text-xs text-zinc-500 pt-2 border-t border-zinc-800">
-                Rate limits: {autoRateLimit.vmRemaining}/3 auto resets per VM, {autoRateLimit.adminRemaining}/10 per admin (hourly)
-              </div>
-            )}
+            {renderRateLimitText(autoRateLimit, 'auto')}
           </div>
         </>
       )}

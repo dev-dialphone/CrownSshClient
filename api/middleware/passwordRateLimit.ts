@@ -47,9 +47,23 @@ export interface RateLimitInfo {
   vmRemaining: number;
   adminRemaining: number;
   resetTime: number;
+  isAdmin: boolean;
 }
 
-export const getPasswordRateLimitInfo = async (vmId: string, adminId: string, type: 'manual' | 'auto'): Promise<RateLimitInfo> => {
+const isAdminUser = (user: IUser): boolean => {
+  return user.role === 'admin';
+};
+
+export const getPasswordRateLimitInfo = async (vmId: string, adminId: string, type: 'manual' | 'auto', isAdmin: boolean = false): Promise<RateLimitInfo> => {
+  if (isAdmin) {
+    return {
+      vmRemaining: Infinity,
+      adminRemaining: Infinity,
+      resetTime: 0,
+      isAdmin: true,
+    };
+  }
+
   const vmLimiter = type === 'manual' ? manualPerVM : autoPerVM;
   const adminLimiter = type === 'manual' ? manualPerAdmin : autoPerAdmin;
   
@@ -62,12 +76,19 @@ export const getPasswordRateLimitInfo = async (vmId: string, adminId: string, ty
     vmRemaining: vmRes?.remainingPoints ?? (type === 'manual' ? 5 : 3),
     adminRemaining: adminRes?.remainingPoints ?? (type === 'manual' ? 20 : 10),
     resetTime: Math.max(vmRes?.msBeforeNext ?? 0, adminRes?.msBeforeNext ?? 0),
+    isAdmin: false,
   };
 };
 
 export const manualPasswordRateLimit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  const vmId = req.params.id;
   const user = req.user as IUser;
+
+  if (isAdminUser(user)) {
+    next();
+    return;
+  }
+
+  const vmId = req.params.id;
   const adminId = (user as any)._id?.toString() || (user as any).id;
   
   try {
@@ -91,8 +112,14 @@ export const manualPasswordRateLimit = async (req: Request, res: Response, next:
 };
 
 export const autoPasswordRateLimit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  const vmId = req.params.id;
   const user = req.user as IUser;
+
+  if (isAdminUser(user)) {
+    next();
+    return;
+  }
+
+  const vmId = req.params.id;
   const adminId = (user as any)._id?.toString() || (user as any).id;
   
   try {
@@ -116,6 +143,13 @@ export const autoPasswordRateLimit = async (req: Request, res: Response, next: N
 };
 
 export const testConnectionRateLimit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const user = req.user as IUser;
+
+  if (isAdminUser(user)) {
+    next();
+    return;
+  }
+
   const vmId = req.params.id;
   
   try {
