@@ -16,37 +16,9 @@ import {
   releasePasswordLock,
   getPasswordRateLimitInfo,
 } from '../middleware/passwordRateLimit.js';
-import { Environment } from '../models/Environment.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
-
-const OPEN_SIPS_CONFIG = {
-  mysqlHost: 'localhost',
-  mysqlUser: 'root',
-  mysqlPassword: 'mcm852258',
-  mysqlDatabase: 'opensips',
-  adminUsername: 'admin',
-};
-
-const OPS_ENVIRONMENT_NAME = 'OPS';
-
-let cachedOpsEnvId: string | null = null;
-
-const getOpsEnvironmentId = async (): Promise<string | null> => {
-  if (cachedOpsEnvId) return cachedOpsEnvId;
-  
-  const env = await Environment.findOne({ name: OPS_ENVIRONMENT_NAME });
-  if (env) {
-    cachedOpsEnvId = (env.toObject() as any)._id.toString();
-  }
-  return cachedOpsEnvId;
-};
-
-const isOpenSIPSVM = async (vm: { environmentId?: string }): Promise<boolean> => {
-  const opsEnvId = await getOpsEnvironmentId();
-  return opsEnvId !== null && vm.environmentId === opsEnvId;
-};
 
 router.use(requireAuth);
 
@@ -516,24 +488,6 @@ router.put('/:id/password/manual',
         return;
       }
       
-      const isOSIPS = await isOpenSIPSVM(vm);
-      let openSIPSMessage = '';
-      if (isOSIPS) {
-        logger.info(`Detected OpenSIPS VM, updating admin password in MySQL...`);
-        const vmWithNewPassword = { ...vm, password: newPassword };
-        const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
-          mysqlPassword: OPEN_SIPS_CONFIG.mysqlPassword,
-          adminUsername: OPEN_SIPS_CONFIG.adminUsername,
-        });
-        if (openSIPSResult.success) {
-          openSIPSMessage = ' OpenSIPS admin password also updated in MySQL.';
-          logger.info(`OpenSIPS admin password updated for VM ${vm.name || vm.ip}`);
-        } else {
-          openSIPSMessage = ` Warning: Failed to update OpenSIPS admin password: ${openSIPSResult.message}`;
-          logger.warn(`Failed to update OpenSIPS admin password for VM ${vm.name || vm.ip}: ${openSIPSResult.message}`);
-        }
-      }
-      
       await vmService.addPasswordHistory({
         vmId: vm.id,
         vmName: vm.name,
@@ -553,10 +507,10 @@ router.put('/:id/password/manual',
         actorRole: user.role,
         action: 'VM_PASSWORD_CHANGED',
         target: vm.name || 'VM',
-        metadata: { vmId: vm.id, method: 'manual', openSIPSUpdated: isOSIPS }
+        metadata: { vmId: vm.id, method: 'manual' }
       });
       
-      res.json({ success: true, message: `Password updated successfully.${openSIPSMessage}` });
+      res.json({ success: true, message: 'Password updated successfully.' });
     } catch (error) {
       logger.error('Manual password update error:', error);
       res.status(500).json({ error: 'Failed to update password', message: (error as Error).message });
@@ -658,24 +612,6 @@ router.post('/:id/password/auto-reset',
       
       await vmService.updatePassword(vm.id, newPassword);
       
-      const isOSIPS = await isOpenSIPSVM(vm);
-      let openSIPSMessage = '';
-      if (isOSIPS) {
-        logger.info(`Detected OpenSIPS VM, updating admin password in MySQL...`);
-        const vmWithNewPassword = { ...vm, password: newPassword };
-        const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
-          mysqlPassword: OPEN_SIPS_CONFIG.mysqlPassword,
-          adminUsername: OPEN_SIPS_CONFIG.adminUsername,
-        });
-        if (openSIPSResult.success) {
-          openSIPSMessage = ' OpenSIPS admin password also updated in MySQL.';
-          logger.info(`OpenSIPS admin password updated for VM ${vm.name || vm.ip}`);
-        } else {
-          openSIPSMessage = ` Warning: Failed to update OpenSIPS admin password: ${openSIPSResult.message}`;
-          logger.warn(`Failed to update OpenSIPS admin password for VM ${vm.name || vm.ip}: ${openSIPSResult.message}`);
-        }
-      }
-      
       await vmService.addPasswordHistory({
         vmId: vm.id,
         vmName: vm.name,
@@ -695,13 +631,13 @@ router.post('/:id/password/auto-reset',
         actorRole: user.role,
         action: 'VM_PASSWORD_RESET',
         target: vm.name || 'VM',
-        metadata: { vmId: vm.id, method: 'auto', openSIPSUpdated: isOSIPS }
+        metadata: { vmId: vm.id, method: 'auto' }
       });
       
       res.json({ 
         success: true, 
         newPassword,
-        message: `Password reset successfully. Please save the new password securely.${openSIPSMessage}` 
+        message: 'Password reset successfully. Please save the new password securely.' 
       });
     } catch (error) {
       logger.error('Auto password reset error:', error);
@@ -789,18 +725,6 @@ router.post('/passwords/bulk-update',
         }
 
         await vmService.updatePassword(vm.id, newPassword);
-
-        if (await isOpenSIPSVM(vm)) {
-          logger.info(`Detected OpenSIPS VM in bulk update, updating admin password in MySQL...`);
-          const vmWithNewPassword = { ...vm, password: newPassword };
-          const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
-            mysqlPassword: OPEN_SIPS_CONFIG.mysqlPassword,
-            adminUsername: OPEN_SIPS_CONFIG.adminUsername,
-          });
-          if (!openSIPSResult.success) {
-            logger.warn(`Failed to update OpenSIPS admin password for VM ${vm.name || vm.ip}: ${openSIPSResult.message}`);
-          }
-        }
 
         await vmService.addPasswordHistory({
           vmId: vm.id,
@@ -931,18 +855,6 @@ router.post('/environments/:envId/passwords/bulk-update',
         }
 
         await vmService.updatePassword(vm.id, newPassword);
-
-        if (await isOpenSIPSVM(vm)) {
-          logger.info(`Detected OpenSIPS VM in environment bulk update, updating admin password in MySQL...`);
-          const vmWithNewPassword = { ...vm, password: newPassword };
-          const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
-            mysqlPassword: OPEN_SIPS_CONFIG.mysqlPassword,
-            adminUsername: OPEN_SIPS_CONFIG.adminUsername,
-          });
-          if (!openSIPSResult.success) {
-            logger.warn(`Failed to update OpenSIPS admin password for VM ${vm.name || vm.ip}: ${openSIPSResult.message}`);
-          }
-        }
 
         await vmService.addPasswordHistory({
           vmId: vm.id,
