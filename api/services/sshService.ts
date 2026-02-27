@@ -24,6 +24,45 @@ const escapeForDoubleQuotes = (str: string): string => {
 
 const SAFE_SPECIAL_CHARS = '@#%^*_+=[]{}:.<>?~';
 
+const tryRootLogin = (vm: VM, password: string): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const conn = new Client();
+    conn.on('ready', () => {
+      conn.end();
+      resolve(true);
+    }).on('error', () => {
+      resolve(false);
+    }).connect({
+      host: vm.ip,
+      port: vm.port,
+      username: 'root',
+      password: password,
+      readyTimeout: 10000,
+    });
+  });
+};
+
+const getRootPasswordAttempt = async (vm: VM): Promise<{ password: string; source: string } | null> => {
+  if (vm.username) {
+    const usernameWorks = await tryRootLogin(vm, vm.username);
+    if (usernameWorks) {
+      logger.info(`Root login for VM ${vm.name || vm.ip} works with username as password`);
+      return { password: vm.username, source: 'username' };
+    }
+  }
+  
+  if (vm.password) {
+    const passwordWorks = await tryRootLogin(vm, vm.password);
+    if (passwordWorks) {
+      logger.info(`Root login for VM ${vm.name || vm.ip} works with vm.password`);
+      return { password: vm.password, source: 'password' };
+    }
+  }
+  
+  logger.warn(`Root login for VM ${vm.name || vm.ip} failed with both username and password`);
+  return null;
+};
+
 export const sshService = {
   executeCommand(vm: VM, command: string, onOutput: (data: string) => void, onError: (data: string) => void): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -65,39 +104,32 @@ export const sshService = {
     });
   },
 
-  testConnection(vm: VM): Promise<ConnectionTestResult> {
+  async testConnection(vm: VM): Promise<ConnectionTestResult> {
     return new Promise((resolve) => {
       const conn = new Client();
       const startTime = Date.now();
       
-      conn.on('ready', () => {
+      conn.on('ready', async () => {
         const latency = Date.now() - startTime;
         
-        const rootConn = new Client();
-        rootConn.on('ready', () => {
-          rootConn.end();
-          conn.end();
-          logger.info(`Connection test successful for VM ${vm.name || vm.ip} (user and root)`);
+        const rootResult = await getRootPasswordAttempt(vm);
+        conn.end();
+        
+        if (rootResult) {
+          logger.info(`Connection test successful for VM ${vm.name || vm.ip} (user and root via ${rootResult.source})`);
           resolve({
             success: true,
-            message: 'Connection successful (user and root)',
+            message: `Connection successful (user and root via ${rootResult.source})`,
             latency,
           });
-        }).on('error', () => {
-          conn.end();
-          logger.info(`Connection test successful for VM ${vm.name || vm.ip} (user only, root password differs)`);
+        } else {
+          logger.info(`Connection test successful for VM ${vm.name || vm.ip} (user only, root password not found)`);
           resolve({
             success: true,
-            message: 'Connection successful (user only - root password may differ)',
+            message: 'Connection successful (user only - could not determine root password)',
             latency,
           });
-        }).connect({
-          host: vm.ip,
-          port: vm.port,
-          username: 'root',
-          password: vm.password,
-          readyTimeout: 10000,
-        });
+        }
       }).on('error', (err: Error & { code?: string }) => {
         let message = err.message;
         
@@ -127,15 +159,19 @@ export const sshService = {
   },
 
   changePassword(vm: VM, newPassword: string): Promise<PasswordChangeResult> {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
       const conn = new Client();
       
       const username = vm.username;
       const currentPassword = vm.password || '';
       
+      const rootPasswordInfo = await getRootPasswordAttempt(vm);
+      const sudoPassword = rootPasswordInfo ? rootPasswordInfo.password : currentPassword;
+      
       const escapedCurrent = escapeForShell(currentPassword);
       const escapedNew = escapeForShell(newPassword);
       const escapedUser = escapeForShell(username);
+      const escapedSudo = escapeForShell(sudoPassword);
       
       const changeRootPassword = async (): Promise<boolean> => {
         return new Promise((rootResolve) => {
@@ -195,16 +231,16 @@ export const sshService = {
                 
                 if (rootMethod.isSudo && !sudoPasswordSent) {
                   if (dataStr.includes('[sudo]') || dataStr.toLowerCase().includes('password for')) {
-                    logger.info(`[${rootMethod.name}] Sending sudo password...`);
-                    stream.write(currentPassword + '\n');
+                    logger.info(`[${rootMethod.name}] Sending sudo password (from ${rootPasswordInfo?.source || 'fallback'})...`);
+                    stream.write(sudoPassword + '\n');
                     sudoPasswordSent = true;
                   }
                 }
                 
                 if (rootMethod.isSu && !sudoPasswordSent) {
                   if (dataStr.toLowerCase().includes('password')) {
-                    logger.info(`[${rootMethod.name}] Sending su password...`);
-                    stream.write(currentPassword + '\n');
+                    logger.info(`[${rootMethod.name}] Sending su password (from ${rootPasswordInfo?.source || 'fallback'})...`);
+                    stream.write(sudoPassword + '\n');
                     sudoPasswordSent = true;
                   }
                 }
@@ -313,8 +349,8 @@ export const sshService = {
             
             if (method.isSudo && !sudoPasswordSent) {
               if (dataStr.includes('[sudo]') || dataStr.toLowerCase().includes('password for')) {
-                logger.info(`[${method.name}] Sending sudo password...`);
-                stream.write(currentPassword + '\n');
+                logger.info(`[${method.name}] Sending sudo password (from ${rootPasswordInfo?.source || 'fallback'})...`);
+                stream.write(sudoPassword + '\n');
                 sudoPasswordSent = true;
                 return;
               }
@@ -322,8 +358,8 @@ export const sshService = {
             
             if (method.isSu && !sudoPasswordSent) {
               if (dataStr.toLowerCase().includes('password')) {
-                logger.info(`[${method.name}] Sending su password...`);
-                stream.write(currentPassword + '\n');
+                logger.info(`[${method.name}] Sending su password (from ${rootPasswordInfo?.source || 'fallback'})...`);
+                stream.write(sudoPassword + '\n');
                 sudoPasswordSent = true;
                 return;
               }
