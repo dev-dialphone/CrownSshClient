@@ -14,6 +14,16 @@ export interface PasswordChangeResult {
   requiresManual?: boolean;
 }
 
+const escapeForShell = (str: string): string => {
+  return str.replace(/'/g, "'\\''");
+};
+
+const escapeForDoubleQuotes = (str: string): string => {
+  return str.replace(/["$`\\!]/g, '\\$&');
+};
+
+const SAFE_SPECIAL_CHARS = '@#%^*_+=[]{}:.<>?~';
+
 export const sshService = {
   executeCommand(vm: VM, command: string, onOutput: (data: string) => void, onError: (data: string) => void): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -104,37 +114,42 @@ export const sshService = {
       const username = vm.username;
       const currentPassword = vm.password || '';
       
-      // Try multiple methods to change password
-      // For systems where root password = user password
+      const escapedCurrent = escapeForShell(currentPassword);
+      const escapedNew = escapeForShell(newPassword);
+      const escapedNewDQ = escapeForDoubleQuotes(newPassword);
+      const escapedUser = escapeForShell(username);
+      
       const commands = [
-        // Method 1: User changes own password via passwd (most reliable)
-        // Uses heredoc to avoid shell escaping issues
-        `passwd << 'PASSWORDEOF'
-${currentPassword}
-${newPassword}
-${newPassword}
-PASSWORDEOF`,
-
-        // Method 2: Use su to become root (when root password = user password)
-        // Then change password using passwd
-        `su -c 'echo "${username}:${newPassword}" | chpasswd' root << 'SUROOTEOF'
-${currentPassword}
-SUROOTEOF`,
-
-        // Method 3: Use sudo with -S flag and heredoc
-        `sudo -S sh << 'SUDOEOF'
-${currentPassword}
-echo "${username}:${newPassword}" | chpasswd 2>/dev/null || printf '%s\n%s\n' '${newPassword}' '${newPassword}' | passwd ${username}
-SUDOEOF`,
-
-        // Method 4: Direct root approach via su - with passwd
-        `su - root << 'SUEOF'
-${currentPassword}
-printf '%s\n%s\n' '${newPassword}' '${newPassword}' | passwd ${username}
-SUEOF`,
-
-        // Method 5: passwd with echo and pipe (fallback)
-        `echo -e "${currentPassword}\n${newPassword}\n${newPassword}" | passwd 2>&1`,
+        {
+          name: 'chpasswd with sudo',
+          cmd: `echo '${escapedUser}:${escapedNew}' | sudo -S chpasswd 2>&1`,
+          needsPty: true,
+          isSudo: true,
+        },
+        {
+          name: 'chpasswd with su',
+          cmd: `su - root -c "echo '${escapedUser}:${escapedNew}' | chpasswd" 2>&1`,
+          needsPty: true,
+          isSu: true,
+        },
+        {
+          name: 'passwd --stdin (RedHat/CentOS)',
+          cmd: `echo '${escapedNew}' | sudo -S passwd --stdin ${escapedUser} 2>&1`,
+          needsPty: true,
+          isSudo: true,
+        },
+        {
+          name: 'interactive passwd with PTY',
+          cmd: `passwd`,
+          needsPty: true,
+          interactive: true,
+        },
+        {
+          name: 'usermod with sudo',
+          cmd: `echo '${escapedNew}' | sudo -S passwd ${escapedUser} --stdin 2>&1 || echo '${escapedUser}:${escapedNew}' | sudo -S chpasswd 2>&1`,
+          needsPty: true,
+          isSudo: true,
+        },
       ];
       
       let currentCommandIndex = 0;
@@ -150,11 +165,17 @@ SUEOF`,
           return;
         }
         
-        const command = commands[currentCommandIndex];
-        logger.debug(`Trying password method ${currentCommandIndex + 1} for VM ${vm.name || vm.ip}`);
+        const method = commands[currentCommandIndex];
+        logger.info(`Trying password method ${currentCommandIndex + 1} (${method.name}) for VM ${vm.name || vm.ip}`);
         
-        conn.exec(command, (err, stream) => {
+        const execOpts: { pty?: boolean } = {};
+        if (method.needsPty) {
+          execOpts.pty = true;
+        }
+        
+        conn.exec(method.cmd, execOpts, (err, stream) => {
           if (err) {
+            logger.debug(`Method ${method.name} exec error: ${err.message}`);
             currentCommandIndex++;
             tryCommand();
             return;
@@ -162,21 +183,71 @@ SUEOF`,
           
           let output = '';
           let stderr = '';
+          let passwordSent = false;
+          let sudoPasswordSent = false;
           
           stream.on('data', (data: Buffer) => {
-            output += data.toString();
+            const dataStr = data.toString();
+            output += dataStr;
+            
+            if (method.isSudo && !sudoPasswordSent) {
+              if (dataStr.includes('[sudo]') || dataStr.toLowerCase().includes('password for')) {
+                stream.write(currentPassword + '\n');
+                sudoPasswordSent = true;
+                return;
+              }
+            }
+            
+            if (method.isSu && !sudoPasswordSent) {
+              if (dataStr.toLowerCase().includes('password:')) {
+                stream.write(currentPassword + '\n');
+                sudoPasswordSent = true;
+                return;
+              }
+            }
+            
+            if (method.interactive && !passwordSent) {
+              const lowerData = dataStr.toLowerCase();
+              if (lowerData.includes('current') || lowerData.includes('old') || lowerData.includes('(current)')) {
+                stream.write(currentPassword + '\n');
+              } else if (lowerData.includes('new') || lowerData.includes('enter new')) {
+                stream.write(newPassword + '\n');
+              } else if (lowerData.includes('retype') || lowerData.includes('re-enter') || lowerData.includes('again')) {
+                stream.write(newPassword + '\n');
+                passwordSent = true;
+              }
+            }
           }).stderr.on('data', (data: Buffer) => {
             stderr += data.toString();
           });
           
-          stream.on('close', (code: number) => {
+          stream.on('close', (code: number, signal: string) => {
             const fullOutput = output + stderr;
             const fullOutputLower = fullOutput.toLowerCase();
             
-            // Log for debugging
-            logger.debug(`Method ${currentCommandIndex + 1} output: ${fullOutput.substring(0, 500)}`);
+            logger.debug(`Method ${method.name} result (code=${code}, signal=${signal}): ${fullOutput.substring(0, 500)}`);
             
-            // Check for success indicators
+            const hasError = 
+              fullOutputLower.includes('error') ||
+              fullOutputLower.includes('failed') ||
+              fullOutputLower.includes('failure') ||
+              fullOutputLower.includes('incorrect') ||
+              fullOutputLower.includes('invalid') ||
+              fullOutputLower.includes('denied') ||
+              fullOutputLower.includes('sorry') ||
+              fullOutputLower.includes('not found') ||
+              fullOutputLower.includes('not allowed') ||
+              fullOutputLower.includes('authentication failure') ||
+              fullOutputLower.includes('permission denied') ||
+              fullOutputLower.includes('must be different') ||
+              fullOutputLower.includes('too short') ||
+              fullOutputLower.includes('too simple') ||
+              fullOutputLower.includes('bad password') ||
+              fullOutputLower.includes('bad: new password') ||
+              fullOutputLower.includes('password unchanged') ||
+              signal === 'SIGTERM' ||
+              signal === 'SIGKILL';
+            
             const hasSuccess = 
               fullOutputLower.includes('password updated') ||
               fullOutputLower.includes('password changed') ||
@@ -184,25 +255,18 @@ SUEOF`,
               fullOutputLower.includes('all authentication tokens updated') ||
               fullOutputLower.includes('passwd: password updated') ||
               fullOutputLower.includes('passwd: all authentication tokens updated') ||
-              fullOutputLower.includes('changing password for') && !fullOutputLower.includes('failed') ||
-              (code === 0 && 
-               !fullOutputLower.includes('error') && 
-               !fullOutputLower.includes('failed') && 
-               !fullOutputLower.includes('incorrect') && 
-               !fullOutputLower.includes('denied') && 
-               !fullOutputLower.includes('sorry') && 
-               !fullOutputLower.includes('not found') &&
-               !fullOutputLower.includes('authentication failure') &&
-               !fullOutputLower.includes('no password'));
+              fullOutputLower.includes('success') ||
+              (code === 0 && !hasError && fullOutput.length > 0 && method.interactive && passwordSent);
             
-            if (hasSuccess) {
+            if (hasSuccess && !hasError) {
               conn.end();
-              logger.info(`Password changed successfully for VM ${vm.name || vm.ip} using method ${currentCommandIndex + 1}`);
+              logger.info(`Password changed successfully for VM ${vm.name || vm.ip} using method ${method.name}`);
               resolve({
                 success: true,
-                message: 'Password changed successfully on VM',
+                message: `Password changed successfully on VM using ${method.name}`,
               });
             } else {
+              logger.debug(`Method ${method.name} failed, trying next...`);
               currentCommandIndex++;
               tryCommand();
             }
@@ -251,10 +315,11 @@ SUEOF`,
     const lowercase = 'abcdefghijklmnopqrstuvwxyz';
     const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const numbers = '0123456789';
-    const special = '!@#$%^&*()_+-=[]{}|;:,.<>?';
     
     let chars = lowercase + uppercase + numbers;
-    if (includeSpecialChars) chars += special;
+    if (includeSpecialChars) {
+      chars += SAFE_SPECIAL_CHARS;
+    }
     
     let password = '';
     const array = new Uint32Array(length);

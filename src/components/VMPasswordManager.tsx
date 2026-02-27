@@ -252,8 +252,8 @@ export default function VMPasswordManager() {
   
   const generateRandomPassword = (length: number = 16, special: boolean = true): string => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const specialChars = '!@#$%^&*()_+-=[]{}|;:,.<>?';
-    const allChars = special ? chars + specialChars : chars;
+    const safeSpecialChars = '@#%^*_+=[]{}:.<>?~';
+    const allChars = special ? chars + safeSpecialChars : chars;
     
     let password = '';
     const array = new Uint32Array(length);
