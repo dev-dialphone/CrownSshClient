@@ -191,16 +191,19 @@ export const sshService = {
               stream.on('data', (data: Buffer) => {
                 const dataStr = data.toString();
                 output += dataStr;
+                logger.info(`[${rootMethod.name}] Received: ${dataStr.trim()}`);
                 
                 if (rootMethod.isSudo && !sudoPasswordSent) {
                   if (dataStr.includes('[sudo]') || dataStr.toLowerCase().includes('password for')) {
+                    logger.info(`[${rootMethod.name}] Sending sudo password...`);
                     stream.write(currentPassword + '\n');
                     sudoPasswordSent = true;
                   }
                 }
                 
                 if (rootMethod.isSu && !sudoPasswordSent) {
-                  if (dataStr.toLowerCase().includes('password:')) {
+                  if (dataStr.toLowerCase().includes('password')) {
+                    logger.info(`[${rootMethod.name}] Sending su password...`);
                     stream.write(currentPassword + '\n');
                     sudoPasswordSent = true;
                   }
@@ -212,6 +215,8 @@ export const sshService = {
               stream.on('close', (code: number) => {
                 const fullOutput = output + stderr;
                 const fullOutputLower = fullOutput.toLowerCase();
+                
+                logger.info(`[${rootMethod.name}] Exit code: ${code}, output: ${fullOutput.substring(0, 200)}`);
                 
                 const hasError = 
                   fullOutputLower.includes('error') ||
@@ -236,6 +241,12 @@ export const sshService = {
       
       const commands = [
         {
+          name: 'interactive passwd with PTY',
+          cmd: `passwd`,
+          needsPty: true,
+          interactive: true,
+        },
+        {
           name: 'chpasswd with sudo',
           cmd: `echo '${escapedUser}:${escapedNew}' | sudo -S chpasswd 2>&1`,
           needsPty: true,
@@ -252,12 +263,6 @@ export const sshService = {
           cmd: `echo '${escapedNew}' | sudo -S passwd --stdin ${escapedUser} 2>&1`,
           needsPty: true,
           isSudo: true,
-        },
-        {
-          name: 'interactive passwd with PTY',
-          cmd: `passwd`,
-          needsPty: true,
-          interactive: true,
         },
         {
           name: 'usermod with sudo',
@@ -290,7 +295,7 @@ export const sshService = {
         
         conn.exec(method.cmd, execOpts, (err, stream) => {
           if (err) {
-            logger.debug(`Method ${method.name} exec error: ${err.message}`);
+            logger.warn(`Method ${method.name} exec error: ${err.message}`);
             currentCommandIndex++;
             tryCommand();
             return;
@@ -304,9 +309,11 @@ export const sshService = {
           stream.on('data', (data: Buffer) => {
             const dataStr = data.toString();
             output += dataStr;
+            logger.info(`[${method.name}] Received: ${dataStr.trim()}`);
             
             if (method.isSudo && !sudoPasswordSent) {
               if (dataStr.includes('[sudo]') || dataStr.toLowerCase().includes('password for')) {
+                logger.info(`[${method.name}] Sending sudo password...`);
                 stream.write(currentPassword + '\n');
                 sudoPasswordSent = true;
                 return;
@@ -314,7 +321,8 @@ export const sshService = {
             }
             
             if (method.isSu && !sudoPasswordSent) {
-              if (dataStr.toLowerCase().includes('password:')) {
+              if (dataStr.toLowerCase().includes('password')) {
+                logger.info(`[${method.name}] Sending su password...`);
                 stream.write(currentPassword + '\n');
                 sudoPasswordSent = true;
                 return;
@@ -324,10 +332,13 @@ export const sshService = {
             if (method.interactive && !passwordSent) {
               const lowerData = dataStr.toLowerCase();
               if (lowerData.includes('current') || lowerData.includes('old') || lowerData.includes('(current)')) {
+                logger.info(`[${method.name}] Sending current password...`);
                 stream.write(currentPassword + '\n');
-              } else if (lowerData.includes('new') || lowerData.includes('enter new')) {
+              } else if (lowerData.includes('new') && (lowerData.includes('password') || lowerData.includes('enter'))) {
+                logger.info(`[${method.name}] Sending new password...`);
                 stream.write(newPassword + '\n');
-              } else if (lowerData.includes('retype') || lowerData.includes('re-enter') || lowerData.includes('again')) {
+              } else if (lowerData.includes('retype') || lowerData.includes('re-enter') || lowerData.includes('again') || lowerData.includes('confirm')) {
+                logger.info(`[${method.name}] Confirming new password...`);
                 stream.write(newPassword + '\n');
                 passwordSent = true;
               }
@@ -340,7 +351,8 @@ export const sshService = {
             const fullOutput = output + stderr;
             const fullOutputLower = fullOutput.toLowerCase();
             
-            logger.debug(`Method ${method.name} result (code=${code}, signal=${signal}): ${fullOutput.substring(0, 500)}`);
+            logger.info(`[${method.name}] Exit code: ${code}, signal: ${signal}`);
+            logger.info(`[${method.name}] Output: ${fullOutput.substring(0, 500)}`);
             
             const hasError = 
               fullOutputLower.includes('error') ||
@@ -371,7 +383,7 @@ export const sshService = {
               fullOutputLower.includes('passwd: password updated') ||
               fullOutputLower.includes('passwd: all authentication tokens updated') ||
               fullOutputLower.includes('success') ||
-              (code === 0 && !hasError && fullOutput.length > 0 && method.interactive && passwordSent);
+              (code === 0 && !hasError && passwordSent && method.interactive);
             
             if (hasSuccess && !hasError) {
               logger.info(`User password changed successfully for VM ${vm.name || vm.ip} using method ${method.name}`);
@@ -386,7 +398,7 @@ export const sshService = {
                   : `User password changed successfully on VM (root password may need manual update)`,
               });
             } else {
-              logger.debug(`Method ${method.name} failed, trying next...`);
+              logger.warn(`Method ${method.name} failed (code=${code}, hasError=${hasError}), trying next...`);
               currentCommandIndex++;
               tryCommand();
             }
