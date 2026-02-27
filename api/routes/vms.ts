@@ -522,7 +522,7 @@ router.put('/:id/password/manual',
         logger.info(`Detected OpenSIPS VM, updating admin password in MySQL...`);
         const vmWithNewPassword = { ...vm, password: newPassword };
         const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
-          mysqlPassword: vm.username,
+          mysqlPassword: OPEN_SIPS_CONFIG.mysqlPassword,
           adminUsername: OPEN_SIPS_CONFIG.adminUsername,
         });
         if (openSIPSResult.success) {
@@ -664,7 +664,7 @@ router.post('/:id/password/auto-reset',
         logger.info(`Detected OpenSIPS VM, updating admin password in MySQL...`);
         const vmWithNewPassword = { ...vm, password: newPassword };
         const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
-          mysqlPassword: vm.username,
+          mysqlPassword: OPEN_SIPS_CONFIG.mysqlPassword,
           adminUsername: OPEN_SIPS_CONFIG.adminUsername,
         });
         if (openSIPSResult.success) {
@@ -794,7 +794,7 @@ router.post('/passwords/bulk-update',
           logger.info(`Detected OpenSIPS VM in bulk update, updating admin password in MySQL...`);
           const vmWithNewPassword = { ...vm, password: newPassword };
           const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
-            mysqlPassword: vm.username,
+            mysqlPassword: OPEN_SIPS_CONFIG.mysqlPassword,
             adminUsername: OPEN_SIPS_CONFIG.adminUsername,
           });
           if (!openSIPSResult.success) {
@@ -936,7 +936,7 @@ router.post('/environments/:envId/passwords/bulk-update',
           logger.info(`Detected OpenSIPS VM in environment bulk update, updating admin password in MySQL...`);
           const vmWithNewPassword = { ...vm, password: newPassword };
           const openSIPSResult = await sshService.updateOpenSIPSAdminPassword(vmWithNewPassword, newPassword, {
-            mysqlPassword: vm.username,
+            mysqlPassword: OPEN_SIPS_CONFIG.mysqlPassword,
             adminUsername: OPEN_SIPS_CONFIG.adminUsername,
           });
           if (!openSIPSResult.success) {
