@@ -9,6 +9,13 @@ export interface VM {
   isPinned?: boolean;
 }
 
+export interface VMGroup {
+  environmentId: string;
+  environmentName: string;
+  vms: VM[];
+  vmCount: number;
+}
+
 export interface Environment {
   id: string;
   name: string;

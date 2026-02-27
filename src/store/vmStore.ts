@@ -1,37 +1,38 @@
 import { create } from 'zustand';
-import { VM, ExecutionLog, ExecutionStatus } from '../types';
+import { VM, VMGroup, ExecutionLog, ExecutionStatus } from '../types';
 
 interface CacheEntry {
-  data: VM[];
-  total: number;
+  data: VMGroup[];
   timestamp: number;
 }
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
-const vmCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 5 * 60 * 1000;
+const groupedCache: CacheEntry = { data: [], timestamp: 0 };
 
 interface VMState {
-  vms: VM[];
+  vmGroups: VMGroup[];
   selectedVmIds: string[];
   activeTerminalVmId: string | null;
+  expandedEnvIds: string[];
   logs: ExecutionLog[];
   statuses: Record<string, 'pending' | 'running' | 'success' | 'error'>;
-
-  // Pagination state
-  page: number;
-  hasMore: boolean;
   isLoading: boolean;
 
-  setVMs: (vms: VM[]) => void;
+  setVMGroups: (groups: VMGroup[]) => void;
   toggleVMSelection: (id: string) => void;
   selectAllVMs: () => void;
+  selectAllVMsInEnv: (envId: string) => void;
   deselectAllVMs: () => void;
+  deselectAllVMsInEnv: (envId: string) => void;
+  toggleEnvExpand: (envId: string) => void;
+  expandAllEnvs: () => void;
+  collapseAllEnvs: () => void;
   addLog: (log: ExecutionLog) => void;
   updateStatus: (status: ExecutionStatus) => void;
   clearLogs: () => void;
   setActiveTerminalVmId: (id: string | null) => void;
 
-  fetchVMs: (envId?: string, page?: number, forceRefresh?: boolean) => Promise<void>;
+  fetchVMGroups: (forceRefresh?: boolean) => Promise<void>;
   addVM: (vm: Omit<VM, 'id'>) => Promise<void>;
   updateVM: (id: string, vm: Partial<VM>) => Promise<void>;
   deleteVM: (id: string) => Promise<void>;
@@ -40,31 +41,27 @@ interface VMState {
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 export const useVMStore = create<VMState>((set, get) => ({
-  vms: [],
+  vmGroups: [],
   selectedVmIds: [],
   activeTerminalVmId: null,
+  expandedEnvIds: [],
   logs: [],
   statuses: {},
-  page: 1,
-  hasMore: true,
   isLoading: false,
 
-  setVMs: (vms) => set({ vms }),
+  setVMGroups: (groups) => set({ vmGroups: groups }),
 
   toggleVMSelection: (id) => set((state) => {
     const newSelected = state.selectedVmIds.includes(id)
       ? state.selectedVmIds.filter((vmId) => vmId !== id)
       : [...state.selectedVmIds, id];
 
-    // Auto-update active terminal
     let newActive = state.activeTerminalVmId;
     if (newSelected.length === 0) {
       newActive = null;
     } else if (!newSelected.includes(id) && state.activeTerminalVmId === id) {
-      // If we just deselected the active terminal, switch to another selected VM
       newActive = newSelected[0];
     } else if (newSelected.length === 1 && !state.activeTerminalVmId) {
-      // If it's the first selection, make it active
       newActive = id;
     }
 
@@ -75,14 +72,48 @@ export const useVMStore = create<VMState>((set, get) => ({
   }),
 
   selectAllVMs: () => set((state) => {
-    const allIds = state.vms.map(v => v.id);
+    const allIds = state.vmGroups.flatMap(g => g.vms.map(v => v.id));
     return {
       selectedVmIds: allIds,
       activeTerminalVmId: state.activeTerminalVmId || allIds[0] || null
     };
   }),
 
+  selectAllVMsInEnv: (envId) => set((state) => {
+    const group = state.vmGroups.find(g => g.environmentId === envId);
+    if (!group) return state;
+    const envVmIds = group.vms.map(v => v.id);
+    const newSelected = [...new Set([...state.selectedVmIds, ...envVmIds])];
+    return {
+      selectedVmIds: newSelected,
+      activeTerminalVmId: state.activeTerminalVmId || newSelected[0] || null
+    };
+  }),
+
   deselectAllVMs: () => set({ selectedVmIds: [], activeTerminalVmId: null }),
+
+  deselectAllVMsInEnv: (envId) => set((state) => {
+    const group = state.vmGroups.find(g => g.environmentId === envId);
+    if (!group) return state;
+    const envVmIds = new Set(group.vms.map(v => v.id));
+    const newSelected = state.selectedVmIds.filter(id => !envVmIds.has(id));
+    return { selectedVmIds: newSelected };
+  }),
+
+  toggleEnvExpand: (envId) => set((state) => {
+    const isExpanded = state.expandedEnvIds.includes(envId);
+    return {
+      expandedEnvIds: isExpanded
+        ? state.expandedEnvIds.filter(id => id !== envId)
+        : [...state.expandedEnvIds, envId]
+    };
+  }),
+
+  expandAllEnvs: () => set((state) => ({
+    expandedEnvIds: state.vmGroups.map(g => g.environmentId)
+  })),
+
+  collapseAllEnvs: () => set({ expandedEnvIds: [] }),
 
   addLog: (log) => set((state) => ({ logs: [...state.logs, log] })),
 
@@ -94,84 +125,33 @@ export const useVMStore = create<VMState>((set, get) => ({
 
   setActiveTerminalVmId: (id) => set({ activeTerminalVmId: id }),
 
-  fetchVMs: async (envId, page = 1, forceRefresh = false) => {
-    // If switching environments (and not just loading more pages), clear current list to prevent leaks
-    if (page === 1) {
-      set({ vms: [], isLoading: true, selectedVmIds: [] });
-    } else {
-      set({ isLoading: true });
+  fetchVMGroups: async (forceRefresh = false) => {
+    if (!forceRefresh && groupedCache.data.length > 0 && Date.now() - groupedCache.timestamp < CACHE_TTL) {
+      const cached = groupedCache.data;
+      set({
+        vmGroups: cached,
+        expandedEnvIds: cached.map(g => g.environmentId),
+        isLoading: false
+      });
+      return;
     }
 
-    const cacheKey = `${envId || 'all'}_page_${page}`;
-
-    // Check cache first if not forcing refresh
-    if (!forceRefresh && page === 1) {
-      const cached = vmCache.get(cacheKey);
-      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        set({
-          vms: cached.data,
-          page: 1,
-          hasMore: cached.data.length < cached.total,
-          isLoading: false,
-          selectedVmIds: []
-        });
-        return;
-      }
-    }
+    set({ isLoading: true });
 
     try {
-      const params = new URLSearchParams();
-      if (envId) params.append('environmentId', envId);
-      params.append('page', page.toString());
-      params.append('limit', '20');
+      const res = await fetch(`${API_URL}/api/vms?grouped=true`, { credentials: 'include' });
+      const groups: VMGroup[] = await res.json();
 
-      const res = await fetch(`${API_URL}/api/vms?${params.toString()}`, { credentials: 'include' });
-      const { data, total } = await res.json();
+      groupedCache.data = groups;
+      groupedCache.timestamp = Date.now();
 
-      // Update cache
-      vmCache.set(cacheKey, { data, total, timestamp: Date.now() });
-
-      set((state) => {
-        // If we are on page 1, strictly replace. If paging, append.
-        // Safety check: ensure we don't duplicate VMs if rapid switching happens
-        const newVMs = page === 1 ? data : [...state.vms, ...data];
-
-        // Remove duplicates just in case
-        const uniqueVMs = Array.from(new Map(newVMs.map(item => [item.id, item])).values()) as VM[];
-
-        // Pre-fetch next page if available
-        const hasNextPage = uniqueVMs.length < total;
-        if (hasNextPage) {
-          setTimeout(() => {
-            const nextParams = new URLSearchParams();
-            if (envId) nextParams.append('environmentId', envId);
-            nextParams.append('page', (page + 1).toString());
-            nextParams.append('limit', '20');
-
-            // Just fetch to warm up cache/browser buffer, don't update state yet
-            // Better: let the IntersectionObserver handle the state update, 
-            // but we can warm the cache here.
-            const nextCacheKey = `${envId || 'all'}_page_${page + 1}`;
-            if (!vmCache.has(nextCacheKey)) {
-              fetch(`${API_URL}/api/vms?${nextParams.toString()}`, { credentials: 'include' })
-                .then(r => r.json())
-                .then(({ data: nextData, total: nextTotal }) => {
-                  vmCache.set(nextCacheKey, { data: nextData, total: nextTotal, timestamp: Date.now() });
-                })
-                .catch(() => { }); // Ignore errors on prefetch
-            }
-          }, 500); // Small delay to prioritize main thread
-        }
-
-        return {
-          vms: uniqueVMs,
-          page,
-          hasMore: hasNextPage,
-          isLoading: false
-        };
+      set({
+        vmGroups: groups,
+        expandedEnvIds: groups.map(g => g.environmentId),
+        isLoading: false
       });
     } catch (error) {
-      console.error('Failed to fetch VMs', error);
+      console.error('Failed to fetch VM groups', error);
       set({ isLoading: false });
     }
   },
@@ -186,11 +166,31 @@ export const useVMStore = create<VMState>((set, get) => ({
       });
       const newVM = await res.json();
 
-      // Optimistic update
-      set((state) => ({ vms: [...state.vms, newVM] }));
+      set((state) => {
+        const groups = [...state.vmGroups];
+        const envId = newVM.environmentId || 'unknown';
+        const groupIndex = groups.findIndex(g => g.environmentId === envId);
 
-      // Invalidate cache for this environment
-      vmCache.clear();
+        if (groupIndex >= 0) {
+          groups[groupIndex] = {
+            ...groups[groupIndex],
+            vms: [...groups[groupIndex].vms, newVM],
+            vmCount: groups[groupIndex].vmCount + 1
+          };
+        } else {
+          groups.push({
+            environmentId: envId,
+            environmentName: 'Unassigned',
+            vms: [newVM],
+            vmCount: 1
+          });
+        }
+
+        groupedCache.data = groups;
+        groupedCache.timestamp = Date.now();
+
+        return { vmGroups: groups };
+      });
 
       window.dispatchEvent(new Event('vm-added'));
     } catch (error) {
@@ -199,10 +199,13 @@ export const useVMStore = create<VMState>((set, get) => ({
   },
 
   updateVM: async (id, vmData) => {
-    // Optimistic UI update
-    const previousVMs = get().vms;
+    const previousGroups = get().vmGroups;
+
     set((state) => ({
-      vms: state.vms.map((v) => (v.id === id ? { ...v, ...vmData } : v)),
+      vmGroups: state.vmGroups.map(group => ({
+        ...group,
+        vms: group.vms.map(v => v.id === id ? { ...v, ...vmData } : v)
+      }))
     }));
 
     try {
@@ -216,38 +219,45 @@ export const useVMStore = create<VMState>((set, get) => ({
       if (!res.ok) throw new Error('Failed to update');
 
       const updatedVM = await res.json();
-      set((state) => ({
-        vms: state.vms.map((v) => (v.id === id ? updatedVM : v)),
-      }));
 
-      // Invalidate cache
-      vmCache.clear();
+      set((state) => {
+        const groups = state.vmGroups.map(group => ({
+          ...group,
+          vms: group.vms.map(v => v.id === id ? updatedVM : v)
+        }));
+        groupedCache.data = groups;
+        groupedCache.timestamp = Date.now();
+        return { vmGroups: groups };
+      });
     } catch (error) {
       console.error('Failed to update VM', error);
-      // Rollback on error
-      set({ vms: previousVMs });
+      set({ vmGroups: previousGroups });
     }
   },
 
   deleteVM: async (id) => {
-    // Optimistic UI update
-    const previousVMs = get().vms;
+    const previousGroups = get().vmGroups;
+
     set((state) => ({
-      vms: state.vms.filter((v) => v.id !== id),
-      selectedVmIds: state.selectedVmIds.filter((vmId) => vmId !== id)
+      vmGroups: state.vmGroups.map(group => ({
+        ...group,
+        vms: group.vms.filter(v => v.id !== id),
+        vmCount: Math.max(0, group.vmCount - 1)
+      })).filter(group => group.vmCount > 0 || group.environmentId !== 'unknown'),
+      selectedVmIds: state.selectedVmIds.filter(vmId => vmId !== id)
     }));
 
     try {
       const res = await fetch(`${API_URL}/api/vms/${id}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) throw new Error('Failed to delete');
 
-      // Invalidate cache
-      vmCache.clear();
+      groupedCache.data = get().vmGroups;
+      groupedCache.timestamp = Date.now();
+
       window.dispatchEvent(new Event('vm-deleted'));
     } catch (error) {
       console.error('Failed to delete VM', error);
-      // Rollback on error
-      set({ vms: previousVMs });
+      set({ vmGroups: previousGroups });
     }
   },
 }));

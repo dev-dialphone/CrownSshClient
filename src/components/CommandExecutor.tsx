@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useVMStore } from '../store/vmStore';
 import { useEnvStore } from '../store/envStore';
 import { useAuthStore } from '../store/authStore';
@@ -10,8 +10,10 @@ export const CommandExecutor: React.FC = () => {
   const statuses = useVMStore(state => state.statuses);
   const activeTerminalVmId = useVMStore(state => state.activeTerminalVmId);
 
-  const vms = useVMStore(state => state.vms);
+  const vmGroups = useVMStore(state => state.vmGroups);
   const selectedVmIds = useVMStore(state => state.selectedVmIds);
+
+  const allVMs = useMemo(() => vmGroups.flatMap(g => g.vms), [vmGroups]);
 
   // Actions (stable)
   const setActiveTerminalVmId = useVMStore(state => state.setActiveTerminalVmId);
@@ -23,7 +25,7 @@ export const CommandExecutor: React.FC = () => {
   const { isAdmin } = useAuthStore();
 
   const currentEnv = environments.find(e => e.id === selectedEnvId);
-  const selectedVMs = vms.filter(v => selectedVmIds.includes(v.id));
+  const selectedVMs = allVMs.filter(v => selectedVmIds.includes(v.id));
   const activeVM = selectedVMs.find(v => v.id === activeTerminalVmId);
   const GLOBAL_DEFAULT = "echo '{{PASSWORD}}' | su -c 'cd /usr/local/freeswitch/bin/ && ps aux | grep freeswitch && pkill -9 freeswitch && sync && echo 3 > /proc/sys/vm/drop_caches && ./freeswitch'";
   const DEFAULT_COMMAND = currentEnv?.command || GLOBAL_DEFAULT;

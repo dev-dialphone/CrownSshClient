@@ -1,4 +1,5 @@
 import { VMModel } from '../models/VM.js';
+import { Environment } from '../models/Environment.js';
 import { PasswordHistoryModel } from '../models/PasswordHistory.js';
 import logger from '../utils/logger.js';
 
@@ -11,6 +12,13 @@ export interface VM {
   port: number;
   environmentId?: string;
   isPinned?: boolean;
+}
+
+export interface VMGroup {
+  environmentId: string;
+  environmentName: string;
+  vms: VM[];
+  vmCount: number;
 }
 
 export interface PasswordHistoryEntry {
@@ -95,6 +103,65 @@ export const vmService = {
     } catch (error) {
       logger.error('Error fetching VMs:', error);
       return { data: [], total: 0 };
+    }
+  },
+
+  async getAllGrouped(): Promise<VMGroup[]> {
+    try {
+      const [envs, allVMs] = await Promise.all([
+        Environment.find().sort({ name: 1 }),
+        VMModel.find().sort({ isPinned: -1, _id: -1 }),
+      ]);
+
+      const vmMap = new Map<string, VM[]>();
+
+      for (const vm of allVMs) {
+        const obj = vm.toObject();
+        const vmData: VM = {
+          id: obj._id.toString(),
+          name: obj.name,
+          ip: obj.ip,
+          username: obj.username,
+          password: obj.password,
+          port: obj.port,
+          environmentId: obj.environmentId,
+          isPinned: obj.isPinned,
+        };
+
+        const envId = obj.environmentId || 'unknown';
+        if (!vmMap.has(envId)) {
+          vmMap.set(envId, []);
+        }
+        vmMap.get(envId)!.push(vmData);
+      }
+
+      const groups: VMGroup[] = [];
+
+      for (const env of envs) {
+        const envId = (env.toObject() as any)._id.toString();
+        const envVMs = vmMap.get(envId) || [];
+        groups.push({
+          environmentId: envId,
+          environmentName: env.name,
+          vms: envVMs,
+          vmCount: envVMs.length,
+        });
+        vmMap.delete(envId);
+      }
+
+      if (vmMap.has('unknown')) {
+        groups.push({
+          environmentId: 'unknown',
+          environmentName: 'Unassigned',
+          vms: vmMap.get('unknown') || [],
+          vmCount: vmMap.get('unknown')?.length || 0,
+        });
+      }
+
+      return groups;
+    } catch (error) {
+      logger.error('Error fetching grouped VMs:', error);
+      return [];
     }
   },
 

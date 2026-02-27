@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useVMStore } from '../store/vmStore';
 import { 
   Key, 
@@ -34,8 +34,12 @@ interface PasswordHistoryEntry {
 }
 
 export default function VMPasswordManager() {
-  const vms = useVMStore(state => state.vms);
-  const fetchVMs = useVMStore(state => state.fetchVMs);
+  const vmGroups = useVMStore(state => state.vmGroups);
+  const fetchVMGroups = useVMStore(state => state.fetchVMGroups);
+  
+  const allVMs = useMemo(() => {
+    return vmGroups.flatMap(g => g.vms);
+  }, [vmGroups]);
   
   const [selectedVmId, setSelectedVmId] = useState<string>('');
   const [showPassword, setShowPassword] = useState(false);
@@ -58,9 +62,9 @@ export default function VMPasswordManager() {
   const [historyLoading, setHistoryLoading] = useState(false);
   
   useEffect(() => {
-    fetchVMs();
+    fetchVMGroups();
     loadHistory();
-  }, [fetchVMs]);
+  }, [fetchVMGroups]);
   
   useEffect(() => {
     if (selectedVmId) {
@@ -68,7 +72,7 @@ export default function VMPasswordManager() {
     }
   }, [selectedVmId]);
   
-  const selectedVM = vms.find(v => v.id === selectedVmId);
+  const selectedVM = allVMs.find(v => v.id === selectedVmId);
   
   const loadRateLimitInfo = async () => {
     try {
@@ -165,7 +169,7 @@ export default function VMPasswordManager() {
         alert('Password updated successfully');
         setNewPassword('');
         setConfirmPassword('');
-        fetchVMs();
+        fetchVMGroups(true);
         loadRateLimitInfo();
         loadHistory();
       } else {
@@ -204,7 +208,7 @@ export default function VMPasswordManager() {
       
       if (res.ok) {
         setGeneratedPassword(data.newPassword);
-        fetchVMs();
+        fetchVMGroups(true);
         loadRateLimitInfo();
         loadHistory();
       } else {
@@ -271,8 +275,12 @@ export default function VMPasswordManager() {
           className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
         >
           <option value="">-- Select a VM --</option>
-          {vms.map(vm => (
-            <option key={vm.id} value={vm.id}>{vm.name} ({vm.ip})</option>
+          {vmGroups.map(group => (
+            <optgroup key={group.environmentId} label={group.environmentName}>
+              {group.vms.map(vm => (
+                <option key={vm.id} value={vm.id}>{vm.name} ({vm.ip})</option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </div>

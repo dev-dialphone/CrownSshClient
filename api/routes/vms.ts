@@ -39,7 +39,18 @@ router.get('/', asyncHandler(async (req, res) => {
   const search = req.query.search as string | undefined;
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 20;
+  const grouped = req.query.grouped as string | undefined;
   const user = req.user as IUser;
+
+  if (grouped === 'true') {
+    const groups = await vmService.getAllGrouped();
+    const filteredGroups = groups.map(group => ({
+      ...group,
+      vms: group.vms.map(vm => filterVMData(vm, user))
+    }));
+    res.json(filteredGroups);
+    return;
+  }
 
   const result = await vmService.getAll(environmentId, search, page, limit);
   const filteredData = result.data.map(vm => filterVMData(vm, user));

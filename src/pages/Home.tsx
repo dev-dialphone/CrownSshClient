@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { EnvironmentSelector } from "@/components/EnvironmentSelector";
-import { VMList } from "@/components/VMList";
+import { EnvironmentVMTree } from "@/components/EnvironmentVMTree";
 import { CommandExecutor } from "@/components/CommandExecutor";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import AccessControlPanel from "@/components/AccessControlPanel";
@@ -11,9 +10,9 @@ import { useVMStore } from "../store/vmStore";
 import { useEnvStore } from "../store/envStore";
 import { useAuthStore } from "../store/authStore";
 import { usePushNotifications } from "../hooks/usePushNotifications";
-import { Layers, Server, Terminal, Users, ScrollText, Mail, Search, Key } from "lucide-react";
+import { Terminal, Users, ScrollText, Mail, Search, Key } from "lucide-react";
 
-type TabId = 'env' | 'vm' | 'exec' | 'access' | 'logs' | 'email' | 'passwords' | 'search';
+type TabId = 'env' | 'exec' | 'access' | 'logs' | 'email' | 'passwords' | 'search';
 
 interface TabConfig {
   id: TabId;
@@ -24,8 +23,7 @@ interface TabConfig {
 }
 
 const TABS: TabConfig[] = [
-  { id: 'env', label: 'Env', icon: <Layers size={20} />, adminOnly: false },
-  { id: 'vm', label: 'VMs', icon: <Server size={20} />, adminOnly: false },
+  { id: 'env', label: 'Env & VMs', icon: null, adminOnly: false },
   { id: 'exec', label: 'Exec', icon: <Terminal size={20} />, adminOnly: false },
   { id: 'access', label: 'Access', icon: <Users size={20} />, adminOnly: true },
   { id: 'passwords', label: 'Passwords', icon: <Key size={20} />, adminOnly: true },
@@ -35,19 +33,16 @@ const TABS: TabConfig[] = [
 ];
 
 export default function Home() {
-  const { fetchVMs } = useVMStore();
-  const { fetchEnvironments, selectedEnvId } = useEnvStore();
+  const fetchVMGroups = useVMStore(state => state.fetchVMGroups);
+  const { fetchEnvironments } = useEnvStore();
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
   const [activeTab, setActiveTab] = useState<TabId>('env');
 
-  // Register admin browser for push notifications
   usePushNotifications();
 
   useEffect(() => { fetchEnvironments(); }, [fetchEnvironments]);
-  useEffect(() => {
-    if (selectedEnvId) fetchVMs(selectedEnvId);
-  }, [fetchVMs, selectedEnvId]);
+  useEffect(() => { fetchVMGroups(); }, [fetchVMGroups]);
 
   const visibleTabs = TABS.filter(t => !t.adminOnly || isAdmin);
 
@@ -67,29 +62,25 @@ export default function Home() {
             <>
               <button
                 onClick={() => setActiveTab('access')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'access' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                  }`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'access' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
               >
                 <Users size={16} /> Access
               </button>
               <button
                 onClick={() => setActiveTab('passwords')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'passwords' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                  }`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'passwords' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
               >
                 <Key size={16} /> Passwords
               </button>
               <button
                 onClick={() => setActiveTab('logs')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'logs' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                  }`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'logs' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
               >
                 <ScrollText size={16} /> Logs
               </button>
               <button
                 onClick={() => setActiveTab('email')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'email' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                  }`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'email' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
               >
                 <Mail size={16} /> Email
               </button>
@@ -114,8 +105,8 @@ export default function Home() {
           <div className="flex-1 flex flex-col h-full bg-black overflow-hidden p-4">
             <GlobalSearch />
           </div>
-        ) : /* Admin Panels (Desktop & Mobile) */
-        isAdmin && ['access', 'passwords', 'logs', 'email'].includes(activeTab) ? (
+        ) : isAdmin && ['access', 'passwords', 'logs', 'email'].includes(activeTab) ? (
+          /* Admin Panels (Desktop & Mobile) */
           <div className="flex-1 flex flex-col h-full bg-black overflow-hidden relative">
             <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
               <button
@@ -133,13 +124,10 @@ export default function Home() {
             </div>
           </div>
         ) : (
-          /* Standard Dashboard Panels (Env / VM / Exec) */
+          /* Standard Dashboard Panels (Env & VMs / Exec) */
           <>
             <div className={`${activeTab === 'env' ? 'flex' : 'hidden'} md:flex flex-1 md:flex-none h-full overflow-hidden`}>
-              <EnvironmentSelector />
-            </div>
-            <div className={`${activeTab === 'vm' ? 'flex' : 'hidden'} md:flex flex-1 md:flex-none h-full overflow-hidden`}>
-              <VMList />
+              <EnvironmentVMTree />
             </div>
             <div className={`${activeTab === 'exec' ? 'flex' : 'hidden'} md:flex flex-1 h-full overflow-hidden`}>
               <CommandExecutor />
@@ -154,8 +142,7 @@ export default function Home() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex flex-col items-center gap-1 p-2 rounded-lg transition-colors ${activeTab === tab.id ? 'text-blue-500 bg-zinc-900' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
+            className={`flex flex-col items-center gap-1 p-2 rounded-lg transition-colors ${activeTab === tab.id ? 'text-blue-500 bg-zinc-900' : 'text-zinc-500 hover:text-zinc-300'}`}
           >
             {tab.icon}
             <span className="text-[10px] font-medium uppercase tracking-wide">{tab.label}</span>
