@@ -101,19 +101,42 @@ export const sshService = {
     return new Promise((resolve) => {
       const conn = new Client();
       
-      const escapedPassword = newPassword.replace(/'/g, "'\\''");
-      const command = `echo '${vm.username}:${escapedPassword}' | sudo -S chpasswd 2>&1 || echo '${vm.username}:${escapedPassword}' | chpasswd 2>&1`;
+      const escapedPassword = newPassword.replace(/'/g, "'\"'\"'");
+      const currentPassword = vm.password || '';
+      const escapedCurrentPassword = currentPassword.replace(/'/g, "'\"'\"'");
+      const username = vm.username;
       
-      conn.on('ready', () => {
-        logger.info(`Attempting password change for VM ${vm.name || vm.ip}`);
+      // Try multiple methods to change password
+      // Method 1: User changing own password (no sudo needed)
+      // Method 2: Using sudo with chpasswd
+      // Method 3: Using sudo with passwd --stdin
+      // Method 4: Using sudo with interactive passwd
+      const commands = [
+        // Method 1: User changes own password (interactive passwd)
+        `printf '%s\\n%s\\n%s\\n' '${escapedCurrentPassword}' '${escapedPassword}' '${escapedPassword}' | passwd 2>&1`,
+        // Method 2: sudo with chpasswd
+        `echo '${escapedCurrentPassword}' | sudo -S sh -c 'echo "${username}:${escapedPassword}" | chpasswd' 2>&1`,
+        // Method 3: sudo with passwd --stdin (CentOS/RHEL)
+        `echo '${escapedCurrentPassword}' | sudo -S passwd --stdin ${username} <<< '${escapedPassword}' 2>&1`,
+        // Method 4: sudo with interactive passwd (Debian/Ubuntu)
+        `echo '${escapedCurrentPassword}' | sudo -S sh -c 'printf "%s\\n%s\\n" "${escapedPassword}" "${escapedPassword}" | passwd ${username}' 2>&1`,
+      ];
+      
+      const tryCommand = (commandIndex: number) => {
+        if (commandIndex >= commands.length) {
+          resolve({
+            success: false,
+            message: 'All password change methods failed. The user may not have sufficient privileges, or required tools (chpasswd/passwd) are not available.',
+            requiresManual: true,
+          });
+          return;
+        }
+        
+        const command = commands[commandIndex];
         
         conn.exec(command, (err, stream) => {
           if (err) {
-            conn.end();
-            resolve({
-              success: false,
-              message: `Command execution failed: ${err.message}`,
-            });
+            tryCommand(commandIndex + 1);
             return;
           }
           
@@ -127,42 +150,39 @@ export const sshService = {
           });
           
           stream.on('close', (code: number) => {
-            conn.end();
+            const fullOutput = output + stderr;
+            const fullOutputLower = fullOutput.toLowerCase();
             
-            const fullOutput = (output + stderr).toLowerCase();
+            // Check for success
+            const hasSuccess = 
+              fullOutputLower.includes('password updated') ||
+              fullOutputLower.includes('password changed') ||
+              fullOutputLower.includes('updated successfully') ||
+              fullOutputLower.includes('all authentication tokens updated') ||
+              fullOutputLower.includes('passwd: password updated') ||
+              fullOutputLower.includes('passwd: all authentication tokens updated') ||
+              (code === 0 && !fullOutputLower.includes('error') && !fullOutputLower.includes('failed') && 
+               !fullOutputLower.includes('incorrect') && !fullOutputLower.includes('denied') && 
+               !fullOutputLower.includes('sorry') && !fullOutputLower.includes('not found'));
             
-            if (code === 0 && !fullOutput.includes('error') && !fullOutput.includes('failed')) {
-              logger.info(`Password change command executed successfully for VM ${vm.name || vm.ip}`);
+            if (hasSuccess) {
+              conn.end();
+              logger.info(`Password changed successfully for VM ${vm.name || vm.ip} using method ${commandIndex + 1}`);
               resolve({
                 success: true,
                 message: 'Password changed successfully on VM',
               });
-            } else if (fullOutput.includes('permission denied') || fullOutput.includes('not allowed')) {
-              resolve({
-                success: false,
-                message: 'Permission denied. Password change requires root privileges or sudo access.',
-                requiresManual: true,
-              });
-            } else if (fullOutput.includes('pam') || fullOutput.includes('complexity') || fullOutput.includes('too short')) {
-              resolve({
-                success: false,
-                message: 'Password rejected by PAM policy. The password may not meet complexity requirements.',
-                requiresManual: true,
-              });
-            } else if (fullOutput.includes('authentication token manipulation')) {
-              resolve({
-                success: false,
-                message: 'Authentication token manipulation error. The password database may be locked.',
-                requiresManual: true,
-              });
             } else {
-              resolve({
-                success: false,
-                message: `Password change failed: ${output || stderr || `Exit code: ${code}`}`,
-              });
+              logger.debug(`Password method ${commandIndex + 1} failed: ${fullOutput}`);
+              tryCommand(commandIndex + 1);
             }
           });
         });
+      };
+      
+      conn.on('ready', () => {
+        logger.info(`Attempting password change for VM ${vm.name || vm.ip}`);
+        tryCommand(0);
       }).on('error', (err) => {
         resolve({
           success: false,
