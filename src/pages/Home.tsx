@@ -6,13 +6,14 @@ import { GlobalSearch } from "@/components/GlobalSearch";
 import AccessControlPanel from "@/components/AccessControlPanel";
 import AuditLogView from "@/components/AuditLogView";
 import EmailSettings from "@/components/EmailSettings";
+import VMPasswordManager from "@/components/VMPasswordManager";
 import { useVMStore } from "../store/vmStore";
 import { useEnvStore } from "../store/envStore";
 import { useAuthStore } from "../store/authStore";
 import { usePushNotifications } from "../hooks/usePushNotifications";
-import { Layers, Server, Terminal, Users, ScrollText, Mail, Search } from "lucide-react";
+import { Layers, Server, Terminal, Users, ScrollText, Mail, Search, Key } from "lucide-react";
 
-type TabId = 'env' | 'vm' | 'exec' | 'access' | 'logs' | 'email' | 'search';
+type TabId = 'env' | 'vm' | 'exec' | 'access' | 'logs' | 'email' | 'passwords' | 'search';
 
 interface TabConfig {
   id: TabId;
@@ -27,6 +28,7 @@ const TABS: TabConfig[] = [
   { id: 'vm', label: 'VMs', icon: <Server size={20} />, adminOnly: false },
   { id: 'exec', label: 'Exec', icon: <Terminal size={20} />, adminOnly: false },
   { id: 'access', label: 'Access', icon: <Users size={20} />, adminOnly: true },
+  { id: 'passwords', label: 'Passwords', icon: <Key size={20} />, adminOnly: true },
   { id: 'logs', label: 'Logs', icon: <ScrollText size={20} />, adminOnly: true },
   { id: 'email', label: 'Email', icon: <Mail size={20} />, adminOnly: true },
   { id: 'search', label: 'Search', icon: <Search size={20} />, adminOnly: false, mobileOnly: true },
@@ -71,6 +73,13 @@ export default function Home() {
                 <Users size={16} /> Access
               </button>
               <button
+                onClick={() => setActiveTab('passwords')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'passwords' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  }`}
+              >
+                <Key size={16} /> Passwords
+              </button>
+              <button
                 onClick={() => setActiveTab('logs')}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'logs' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
                   }`}
@@ -106,7 +115,7 @@ export default function Home() {
             <GlobalSearch />
           </div>
         ) : /* Admin Panels (Desktop & Mobile) */
-        isAdmin && (activeTab === 'access' || activeTab === 'logs' || activeTab === 'email') ? (
+        isAdmin && ['access', 'passwords', 'logs', 'email'].includes(activeTab) ? (
           <div className="flex-1 flex flex-col h-full bg-black overflow-hidden relative">
             <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
               <button
@@ -118,6 +127,7 @@ export default function Home() {
             </div>
             <div className="flex-1 overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8">
               {activeTab === 'access' && <AccessControlPanel />}
+              {activeTab === 'passwords' && <VMPasswordManager />}
               {activeTab === 'logs' && <AuditLogView />}
               {activeTab === 'email' && <EmailSettings />}
             </div>

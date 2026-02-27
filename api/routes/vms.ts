@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { vmService } from '../services/vmService.js';
 import { validate } from '../middleware/validate.js';
 import { createVMSchema, updateVMSchema } from '../schemas/vmSchema.js';
@@ -6,18 +6,26 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { requireAuth, requireRole } from '../middleware/requireAuth.js';
 import { IUser } from '../models/User.js';
 import { logEvent } from '../services/auditService.js';
+import { sshService } from '../services/sshService.js';
+import { 
+  manualPasswordRateLimit, 
+  autoPasswordRateLimit, 
+  testConnectionRateLimit,
+  passwordLockMiddleware,
+  acquirePasswordLock,
+  releasePasswordLock,
+  getPasswordRateLimitInfo,
+} from '../middleware/passwordRateLimit.js';
+import logger from '../utils/logger.js';
 
 const router = Router();
 
-// All VM routes require authentication
 router.use(requireAuth);
 
-// Helper to filter VM data based on user role
 const filterVMData = (vm: any, user: IUser) => {
     if (user.role === 'admin') {
         return vm;
     }
-    // Regular users only see name and id
     return {
         id: vm.id,
         name: vm.name,
@@ -26,7 +34,6 @@ const filterVMData = (vm: any, user: IUser) => {
     };
 };
 
-// GET: Any authenticated user can list VMs
 router.get('/', asyncHandler(async (req, res) => {
   const environmentId = req.query.environmentId as string | undefined;
   const search = req.query.search as string | undefined;
@@ -39,7 +46,6 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json({ data: filteredData, total: result.total });
 }));
 
-// POST: Admin only
 router.post('/', requireRole('admin'), validate(createVMSchema), asyncHandler(async (req, res) => {
   const user = req.user as IUser;
   const newVM = await vmService.add(req.body);
@@ -56,7 +62,6 @@ router.post('/', requireRole('admin'), validate(createVMSchema), asyncHandler(as
   res.json(newVM);
 }));
 
-// PUT: Admin only
 router.put('/:id', requireRole('admin'), validate(updateVMSchema), asyncHandler(async (req, res) => {
   const user = req.user as IUser;
   const updatedVM = await vmService.update(req.params.id, req.body);
@@ -77,7 +82,6 @@ router.put('/:id', requireRole('admin'), validate(updateVMSchema), asyncHandler(
   res.json(updatedVM);
 }));
 
-// DELETE: Admin only
 router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   const user = req.user as IUser;
   const vm = await vmService.getById(req.params.id);
@@ -98,5 +102,327 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   
   res.json({ success: true });
 }));
+
+// ===== PASSWORD HISTORY ENDPOINTS (Static routes before /:id) =====
+
+// Get password history
+router.get('/passwords/history',
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const vmId = req.query.vmId as string | undefined;
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+    const limit = parseInt(req.query.limit as string) || 100;
+    const offset = parseInt(req.query.offset as string) || 0;
+    const format = req.query.format as 'json' | 'csv' || 'json';
+    
+    const result = await vmService.getPasswordHistory({
+      vmId,
+      startDate,
+      endDate,
+      limit,
+      offset,
+    });
+    
+    if (format === 'csv') {
+      const csv = [
+        'VM Name,IP Address,Username,New Password,Operation,Changed By,Success,Timestamp',
+        ...result.data.map(entry => 
+          `"${entry.vmName}","${entry.vmIp}","${entry.vmUsername}","${entry.newPassword}","${entry.operationType}","${entry.changedBy}","${entry.success}","${entry.createdAt.toISOString()}"`
+        )
+      ].join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="password-history.csv"');
+      res.send(csv);
+    } else {
+      res.json(result);
+    }
+  })
+);
+
+// Export password history (download)
+router.get('/passwords/export',
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const user = req.user as IUser;
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+    const format = (req.query.format as 'csv' | 'json') || 'csv';
+    
+    const result = await vmService.getPasswordHistory({
+      startDate,
+      endDate,
+      limit: 10000,
+    });
+    
+    await logEvent({
+      actorId: (user as any)._id?.toString() || (user as any).id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: 'PASSWORD_HISTORY_EXPORTED',
+      target: 'Password History',
+      metadata: { format, recordCount: result.total }
+    });
+    
+    if (format === 'json') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename="password-history.json"');
+      res.json(result.data);
+    } else {
+      const csv = [
+        'VM Name,IP Address,Username,New Password,Operation,Changed By,Success,Error Message,Timestamp',
+        ...result.data.map(entry => 
+          `"${entry.vmName}","${entry.vmIp}","${entry.vmUsername}","${entry.newPassword}","${entry.operationType}","${entry.changedBy}","${entry.success}","${entry.errorMessage || ''}","${entry.createdAt.toISOString()}"`
+        )
+      ].join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="password-history.csv"');
+      res.send(csv);
+    }
+  })
+);
+
+// ===== PASSWORD MANAGEMENT ENDPOINTS =====
+
+// Test connection to VM
+router.post('/:id/password/test', 
+  requireRole('admin'),
+  testConnectionRateLimit,
+  asyncHandler(async (req, res) => {
+    const vm = await vmService.getById(req.params.id);
+    if (!vm) {
+      res.status(404).json({ error: 'VM not found' });
+      return;
+    }
+    
+    const result = await sshService.testConnection(vm);
+    res.json(result);
+  })
+);
+
+// Get rate limit info for a VM
+router.get('/:id/password/rate-limit',
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const vmId = req.params.id;
+    const user = req.user as IUser;
+    const adminId = (user as any)._id?.toString() || (user as any).id;
+    
+    const [manualInfo, autoInfo] = await Promise.all([
+      getPasswordRateLimitInfo(vmId, adminId, 'manual'),
+      getPasswordRateLimitInfo(vmId, adminId, 'auto'),
+    ]);
+    
+    res.json({ manual: manualInfo, auto: autoInfo });
+  })
+);
+
+// Manual password update
+router.put('/:id/password/manual',
+  requireRole('admin'),
+  manualPasswordRateLimit,
+  passwordLockMiddleware,
+  asyncHandler(async (req, res) => {
+    const { newPassword, testConnection = true } = req.body;
+    const user = req.user as IUser;
+    const adminId = (user as any)._id?.toString() || (user as any).id;
+    
+    if (!newPassword || newPassword.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters' });
+      return;
+    }
+    
+    const vm = await vmService.getById(req.params.id);
+    if (!vm) {
+      res.status(404).json({ error: 'VM not found' });
+      return;
+    }
+    
+    const oldPassword = vm.password;
+    
+    const lockAcquired = await acquirePasswordLock(vm.id);
+    if (!lockAcquired) {
+      res.status(423).json({ error: 'OPERATION_IN_PROGRESS', message: 'Another password operation is in progress' });
+      return;
+    }
+    
+    try {
+      if (testConnection) {
+        const connTest = await sshService.testConnection(vm);
+        if (!connTest.success) {
+          await releasePasswordLock(vm.id);
+          res.status(400).json({ error: 'Connection test failed', message: connTest.message });
+          return;
+        }
+      }
+      
+      const updatedVM = await vmService.updatePassword(vm.id, newPassword);
+      if (!updatedVM) {
+        await releasePasswordLock(vm.id);
+        res.status(500).json({ error: 'Failed to update password in database' });
+        return;
+      }
+      
+      await vmService.addPasswordHistory({
+        vmId: vm.id,
+        vmName: vm.name,
+        vmIp: vm.ip,
+        vmUsername: vm.username,
+        newPassword,
+        oldPassword,
+        operationType: 'manual',
+        changedBy: user.email,
+        changedById: adminId,
+        success: true,
+      });
+      
+      await logEvent({
+        actorId: adminId,
+        actorEmail: user.email,
+        actorRole: user.role,
+        action: 'VM_PASSWORD_CHANGED',
+        target: vm.name || 'VM',
+        metadata: { vmId: vm.id, method: 'manual' }
+      });
+      
+      res.json({ success: true, message: 'Password updated successfully' });
+    } catch (error) {
+      logger.error('Manual password update error:', error);
+      res.status(500).json({ error: 'Failed to update password', message: (error as Error).message });
+    } finally {
+      await releasePasswordLock(vm.id);
+    }
+  })
+);
+
+// Automatic password reset
+router.post('/:id/password/auto-reset',
+  requireRole('admin'),
+  autoPasswordRateLimit,
+  passwordLockMiddleware,
+  asyncHandler(async (req, res) => {
+    const { length = 16, includeSpecialChars = true, testBeforeChange = true } = req.body;
+    const user = req.user as IUser;
+    const adminId = (user as any)._id?.toString() || (user as any).id;
+    
+    const vm = await vmService.getById(req.params.id);
+    if (!vm) {
+      res.status(404).json({ error: 'VM not found' });
+      return;
+    }
+    
+    const oldPassword = vm.password;
+    
+    const lockAcquired = await acquirePasswordLock(vm.id);
+    if (!lockAcquired) {
+      res.status(423).json({ error: 'OPERATION_IN_PROGRESS', message: 'Another password operation is in progress' });
+      return;
+    }
+    
+    try {
+      if (testBeforeChange) {
+        const connTest = await sshService.testConnection(vm);
+        if (!connTest.success) {
+          await releasePasswordLock(vm.id);
+          res.status(400).json({ error: 'Connection test failed', message: connTest.message });
+          return;
+        }
+      }
+      
+      const newPassword = sshService.generatePassword(length, includeSpecialChars);
+      
+      const changeResult = await sshService.changePassword(vm, newPassword);
+      if (!changeResult.success) {
+        await vmService.addPasswordHistory({
+          vmId: vm.id,
+          vmName: vm.name,
+          vmIp: vm.ip,
+          vmUsername: vm.username,
+          newPassword,
+          oldPassword,
+          operationType: 'auto',
+          changedBy: user.email,
+          changedById: adminId,
+          success: false,
+          errorMessage: changeResult.message,
+        });
+        
+        await releasePasswordLock(vm.id);
+        res.status(400).json({ 
+          error: 'Password change failed on VM', 
+          message: changeResult.message,
+          requiresManual: changeResult.requiresManual,
+        });
+        return;
+      }
+      
+      const testResult = await sshService.testPassword(vm, newPassword);
+      if (!testResult) {
+        logger.error(`New password verification failed for VM ${vm.id}. Rolling back...`);
+        if (oldPassword) {
+          await sshService.changePassword({ ...vm, password: newPassword }, oldPassword);
+        }
+        
+        await vmService.addPasswordHistory({
+          vmId: vm.id,
+          vmName: vm.name,
+          vmIp: vm.ip,
+          vmUsername: vm.username,
+          newPassword,
+          oldPassword,
+          operationType: 'auto',
+          changedBy: user.email,
+          changedById: adminId,
+          success: false,
+          errorMessage: 'New password verification failed - rolled back',
+        });
+        
+        await releasePasswordLock(vm.id);
+        res.status(500).json({ 
+          error: 'Password verification failed', 
+          message: 'The new password could not be verified. The old password has been restored on the VM.' 
+        });
+        return;
+      }
+      
+      await vmService.updatePassword(vm.id, newPassword);
+      
+      await vmService.addPasswordHistory({
+        vmId: vm.id,
+        vmName: vm.name,
+        vmIp: vm.ip,
+        vmUsername: vm.username,
+        newPassword,
+        oldPassword,
+        operationType: 'auto',
+        changedBy: user.email,
+        changedById: adminId,
+        success: true,
+      });
+      
+      await logEvent({
+        actorId: adminId,
+        actorEmail: user.email,
+        actorRole: user.role,
+        action: 'VM_PASSWORD_RESET',
+        target: vm.name || 'VM',
+        metadata: { vmId: vm.id, method: 'auto' }
+      });
+      
+      res.json({ 
+        success: true, 
+        newPassword,
+        message: 'Password reset successfully. Please save the new password securely.' 
+      });
+    } catch (error) {
+      logger.error('Auto password reset error:', error);
+      res.status(500).json({ error: 'Failed to reset password', message: (error as Error).message });
+    } finally {
+      await releasePasswordLock(vm.id);
+    }
+  })
+);
 
 export default router;

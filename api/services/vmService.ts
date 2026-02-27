@@ -1,7 +1,7 @@
 import { VMModel } from '../models/VM.js';
+import { PasswordHistoryModel } from '../models/PasswordHistory.js';
 import logger from '../utils/logger.js';
 
-// Re-export interface for compatibility, or define a compatible one
 export interface VM {
   id: string;
   name: string;
@@ -11,6 +11,20 @@ export interface VM {
   port: number;
   environmentId?: string;
   isPinned?: boolean;
+}
+
+export interface PasswordHistoryEntry {
+  id: string;
+  vmId: string;
+  vmName: string;
+  vmIp: string;
+  vmUsername: string;
+  newPassword: string;
+  operationType: 'manual' | 'auto';
+  changedBy: string;
+  success: boolean;
+  errorMessage?: string;
+  createdAt: Date;
 }
 
 export const vmService = {
@@ -147,5 +161,101 @@ export const vmService = {
   async delete(id: string): Promise<boolean> {
     const result = await VMModel.findByIdAndDelete(id);
     return !!result;
+  },
+
+  async updatePassword(vmId: string, newPassword: string): Promise<VM | null> {
+    const vm = await VMModel.findById(vmId);
+    if (!vm) return null;
+    
+    vm.password = newPassword;
+    await vm.save();
+    
+    const obj = vm.toObject();
+    return {
+      id: obj._id.toString(),
+      name: obj.name,
+      ip: obj.ip,
+      username: obj.username,
+      password: obj.password,
+      port: obj.port,
+      environmentId: obj.environmentId,
+      isPinned: obj.isPinned
+    };
+  },
+
+  async addPasswordHistory(entry: {
+    vmId: string;
+    vmName: string;
+    vmIp: string;
+    vmUsername: string;
+    newPassword: string;
+    oldPassword?: string;
+    operationType: 'manual' | 'auto';
+    changedBy: string;
+    changedById: string;
+    success: boolean;
+    errorMessage?: string;
+  }): Promise<void> {
+    try {
+      await PasswordHistoryModel.create(entry);
+    } catch (error) {
+      logger.error('Error saving password history:', error);
+    }
+  },
+
+  async getPasswordHistory(options: {
+    vmId?: string;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ data: PasswordHistoryEntry[]; total: number }> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const query: any = {};
+      
+      if (options.vmId) {
+        query.vmId = options.vmId;
+      }
+      
+      if (options.startDate || options.endDate) {
+        query.createdAt = {};
+        if (options.startDate) query.createdAt.$gte = options.startDate;
+        if (options.endDate) query.createdAt.$lte = options.endDate;
+      }
+      
+      const limit = options.limit || 50;
+      const offset = options.offset || 0;
+      
+      const [results, total] = await Promise.all([
+        PasswordHistoryModel.find(query)
+          .sort({ createdAt: -1 })
+          .skip(offset)
+          .limit(limit),
+        PasswordHistoryModel.countDocuments(query),
+      ]);
+      
+      const data = results.map(r => {
+        const obj = r.toObject();
+        return {
+          id: obj._id.toString(),
+          vmId: obj.vmId,
+          vmName: obj.vmName,
+          vmIp: obj.vmIp,
+          vmUsername: obj.vmUsername,
+          newPassword: obj.newPassword,
+          operationType: obj.operationType,
+          changedBy: obj.changedBy,
+          success: obj.success,
+          errorMessage: obj.errorMessage,
+          createdAt: obj.createdAt,
+        };
+      });
+      
+      return { data, total };
+    } catch (error) {
+      logger.error('Error fetching password history:', error);
+      return { data: [], total: 0 };
+    }
   },
 };

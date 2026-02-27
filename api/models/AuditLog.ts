@@ -7,6 +7,8 @@ export type AuditAction =
     | 'VM_UPDATED'
     | 'VM_DELETED'
     | 'VM_PINNED'
+    | 'VM_PASSWORD_CHANGED'
+    | 'VM_PASSWORD_RESET'
     | 'COMMAND_EXECUTED'
     | 'ENV_CREATED'
     | 'ENV_UPDATED'
@@ -16,7 +18,8 @@ export type AuditAction =
     | 'USER_REVOKED'
     | 'USER_BLOCKED'
     | 'USER_UNBLOCKED'
-    | 'SETTING_UPDATED';
+    | 'SETTING_UPDATED'
+    | 'PASSWORD_HISTORY_EXPORTED';
 
 export interface IAuditLog extends Document {
     actorId: string;         // User._id
