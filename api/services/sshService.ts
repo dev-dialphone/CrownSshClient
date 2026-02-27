@@ -72,12 +72,31 @@ export const sshService = {
       
       conn.on('ready', () => {
         const latency = Date.now() - startTime;
-        conn.end();
-        logger.info(`Connection test successful for VM ${vm.name || vm.ip}`);
-        resolve({
-          success: true,
-          message: 'Connection successful',
-          latency,
+        
+        const rootConn = new Client();
+        rootConn.on('ready', () => {
+          rootConn.end();
+          conn.end();
+          logger.info(`Connection test successful for VM ${vm.name || vm.ip} (user and root)`);
+          resolve({
+            success: true,
+            message: 'Connection successful (user and root)',
+            latency,
+          });
+        }).on('error', () => {
+          conn.end();
+          logger.info(`Connection test successful for VM ${vm.name || vm.ip} (user only, root password differs)`);
+          resolve({
+            success: true,
+            message: 'Connection successful (user only - root password may differ)',
+            latency,
+          });
+        }).connect({
+          host: vm.ip,
+          port: vm.port,
+          username: 'root',
+          password: vm.password,
+          readyTimeout: 10000,
         });
       }).on('error', (err: Error & { code?: string }) => {
         let message = err.message;
@@ -393,15 +412,28 @@ export const sshService = {
     });
   },
 
-  testPassword(vm: VM, testPassword: string): Promise<boolean> {
+  testPassword(vm: VM, testPassword: string): Promise<{ user: boolean; root: boolean }> {
     return new Promise((resolve) => {
-      const conn = new Client();
+      const userConn = new Client();
       
-      conn.on('ready', () => {
-        conn.end();
-        resolve(true);
+      userConn.on('ready', () => {
+        userConn.end();
+        
+        const rootConn = new Client();
+        rootConn.on('ready', () => {
+          rootConn.end();
+          resolve({ user: true, root: true });
+        }).on('error', () => {
+          resolve({ user: true, root: false });
+        }).connect({
+          host: vm.ip,
+          port: vm.port,
+          username: 'root',
+          password: testPassword,
+          readyTimeout: 10000,
+        });
       }).on('error', () => {
-        resolve(false);
+        resolve({ user: false, root: false });
       }).connect({
         host: vm.ip,
         port: vm.port,

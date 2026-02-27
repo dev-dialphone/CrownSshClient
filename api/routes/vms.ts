@@ -582,7 +582,7 @@ router.post('/:id/password/auto-reset',
       }
       
       const testResult = await sshService.testPassword(vm, newPassword);
-      if (!testResult) {
+      if (!testResult.user) {
         logger.error(`New password verification failed for VM ${vm.id}. Rolling back...`);
         if (oldPassword) {
           await sshService.changePassword({ ...vm, password: newPassword }, oldPassword);
@@ -608,6 +608,10 @@ router.post('/:id/password/auto-reset',
           message: 'The new password could not be verified. The old password has been restored on the VM.' 
         });
         return;
+      }
+      
+      if (!testResult.root) {
+        logger.warn(`Root password verification failed for VM ${vm.id}, but user password verified successfully.`);
       }
       
       await vmService.updatePassword(vm.id, newPassword);
