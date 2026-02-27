@@ -14,6 +14,22 @@ export interface PasswordChangeResult {
   requiresManual?: boolean;
 }
 
+export interface OpenSIPSConfig {
+  mysqlHost?: string;
+  mysqlUser?: string;
+  mysqlPassword?: string;
+  mysqlDatabase?: string;
+  adminUsername?: string;
+}
+
+const OPEN_SIPS_DEFAULT_CONFIG: OpenSIPSConfig = {
+  mysqlHost: 'localhost',
+  mysqlUser: 'root',
+  mysqlPassword: 'mcm852258',
+  mysqlDatabase: 'opensips',
+  adminUsername: 'admin',
+};
+
 const escapeForShell = (str: string): string => {
   return str.replace(/'/g, "'\\''");
 };
@@ -332,5 +348,82 @@ export const sshService = {
     }
     
     return password;
+  },
+
+  updateOpenSIPSAdminPassword(
+    vm: VM, 
+    newPassword: string, 
+    config: OpenSIPSConfig = {}
+  ): Promise<PasswordChangeResult> {
+    return new Promise((resolve) => {
+      const conn = new Client();
+      
+      const finalConfig = { ...OPEN_SIPS_DEFAULT_CONFIG, ...config };
+      const escapedNew = escapeForShell(newPassword);
+      const escapedAdminUser = escapeForShell(finalConfig.adminUsername || 'admin');
+      const escapedMySqlPass = escapeForShell(finalConfig.mysqlPassword || '');
+      
+      const ha1Input = `${finalConfig.adminUsername}:opensips.org:${newPassword}`;
+      
+      const mysqlCommand = `mysql -h ${finalConfig.mysqlHost} -u ${finalConfig.mysqlUser} -p'${escapedMySqlPass}' ${finalConfig.mysqlDatabase} -e "UPDATE ocp_admin_privileges SET password='${escapedNew}', ha1=MD5('${escapeForShell(ha1Input)}'), blocked=NULL, failed_attempts=0 WHERE username='${escapedAdminUser}';" 2>&1`;
+      
+      conn.on('ready', () => {
+        logger.info(`Updating OpenSIPS admin password for VM ${vm.name || vm.ip}`);
+        
+        conn.exec(mysqlCommand, (err, stream) => {
+          if (err) {
+            logger.error(`OpenSIPS password update exec error: ${err.message}`);
+            conn.end();
+            resolve({
+              success: false,
+              message: `Failed to execute MySQL command: ${err.message}`,
+            });
+            return;
+          }
+          
+          let output = '';
+          let stderr = '';
+          
+          stream.on('data', (data: Buffer) => {
+            output += data.toString();
+          }).stderr.on('data', (data: Buffer) => {
+            stderr += data.toString();
+          });
+          
+          stream.on('close', (code: number) => {
+            const fullOutput = output + stderr;
+            
+            if (code === 0 && !fullOutput.toLowerCase().includes('error')) {
+              logger.info(`OpenSIPS admin password updated successfully for VM ${vm.name || vm.ip}`);
+              conn.end();
+              resolve({
+                success: true,
+                message: 'OpenSIPS admin password updated successfully in MySQL database',
+              });
+            } else {
+              logger.error(`OpenSIPS password update failed: ${fullOutput}`);
+              conn.end();
+              resolve({
+                success: false,
+                message: `Failed to update OpenSIPS password: ${fullOutput}`,
+                requiresManual: true,
+              });
+            }
+          });
+        });
+      }).on('error', (err) => {
+        logger.error(`OpenSIPS password update connection error: ${err.message}`);
+        resolve({
+          success: false,
+          message: `Connection failed: ${err.message}`,
+        });
+      }).connect({
+        host: vm.ip,
+        port: vm.port,
+        username: vm.username,
+        password: vm.password,
+        readyTimeout: 15000,
+      });
+    });
   },
 };
