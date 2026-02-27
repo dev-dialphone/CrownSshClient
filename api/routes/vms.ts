@@ -197,6 +197,129 @@ router.get('/passwords/export',
 
 // ===== PASSWORD MANAGEMENT ENDPOINTS =====
 
+// Get detailed password history for a VM (includes old passwords)
+router.get('/:id/password/history',
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const vm = await vmService.getById(req.params.id);
+    if (!vm) {
+      res.status(404).json({ error: 'VM not found' });
+      return;
+    }
+    
+    const result = await vmService.getPasswordHistory({
+      vmId: req.params.id,
+      limit: 20,
+    });
+    
+    res.json(result.data);
+  })
+);
+
+// Restore old password from history
+router.post('/:id/password/restore',
+  requireRole('admin'),
+  passwordLockMiddleware,
+  asyncHandler(async (req, res) => {
+    const { historyId } = req.body;
+    const user = req.user as IUser;
+    const adminId = (user as any)._id?.toString() || (user as any).id;
+    
+    if (!historyId) {
+      res.status(400).json({ error: 'History ID is required' });
+      return;
+    }
+    
+    const vm = await vmService.getById(req.params.id);
+    if (!vm) {
+      res.status(404).json({ error: 'VM not found' });
+      return;
+    }
+    
+    const PasswordHistoryModel = (await import('../models/PasswordHistory.js')).PasswordHistoryModel;
+    const historyEntry = await PasswordHistoryModel.findById(historyId);
+    
+    if (!historyEntry || historyEntry.vmId !== vm.id) {
+      res.status(404).json({ error: 'History entry not found' });
+      return;
+    }
+    
+    if (!historyEntry.oldPassword) {
+      res.status(400).json({ error: 'No old password available in this history entry' });
+      return;
+    }
+    
+    const restorePassword = historyEntry.oldPassword;
+    const currentPassword = vm.password;
+    
+    const lockAcquired = await acquirePasswordLock(vm.id);
+    if (!lockAcquired) {
+      res.status(423).json({ error: 'OPERATION_IN_PROGRESS', message: 'Another password operation is in progress' });
+      return;
+    }
+    
+    try {
+      const changeResult = await sshService.changePassword(vm, restorePassword);
+      if (!changeResult.success) {
+        await vmService.addPasswordHistory({
+          vmId: vm.id,
+          vmName: vm.name,
+          vmIp: vm.ip,
+          vmUsername: vm.username,
+          newPassword: restorePassword,
+          oldPassword: currentPassword,
+          operationType: 'manual',
+          changedBy: user.email,
+          changedById: adminId,
+          success: false,
+          errorMessage: `Restore failed: ${changeResult.message}`,
+        });
+        await releasePasswordLock(vm.id);
+        res.status(400).json({ 
+          error: 'Failed to restore password on VM', 
+          message: changeResult.message 
+        });
+        return;
+      }
+      
+      await vmService.updatePassword(vm.id, restorePassword);
+      
+      await vmService.addPasswordHistory({
+        vmId: vm.id,
+        vmName: vm.name,
+        vmIp: vm.ip,
+        vmUsername: vm.username,
+        newPassword: restorePassword,
+        oldPassword: currentPassword,
+        operationType: 'manual',
+        changedBy: user.email,
+        changedById: adminId,
+        success: true,
+      });
+      
+      await logEvent({
+        actorId: adminId,
+        actorEmail: user.email,
+        actorRole: user.role,
+        action: 'VM_PASSWORD_CHANGED',
+        target: vm.name || 'VM',
+        metadata: { vmId: vm.id, method: 'restore', historyId }
+      });
+      
+      res.json({ 
+        success: true, 
+        message: 'Password restored successfully',
+        restoredPassword: restorePassword 
+      });
+    } catch (error) {
+      logger.error('Password restore error:', error);
+      res.status(500).json({ error: 'Failed to restore password', message: (error as Error).message });
+    } finally {
+      await releasePasswordLock(vm.id);
+    }
+  })
+);
+
 // Test connection to VM
 router.post('/:id/password/test', 
   requireRole('admin'),

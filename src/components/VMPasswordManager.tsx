@@ -12,7 +12,8 @@ import {
   XCircle,
   Copy,
   Loader2,
-  Layers
+  Layers,
+  RotateCcw
 } from 'lucide-react';
 
 interface RateLimitInfo {
@@ -28,6 +29,7 @@ interface PasswordHistoryEntry {
   vmIp: string;
   vmUsername: string;
   newPassword: string;
+  oldPassword?: string;
   operationType: 'manual' | 'auto';
   changedBy: string;
   success: boolean;
@@ -83,6 +85,11 @@ export default function VMPasswordManager() {
   const [envBulkUpdating, setEnvBulkUpdating] = useState(false);
   const [envBulkResults, setEnvBulkResults] = useState<BulkResult[] | null>(null);
   const [envBulkTestConnection, setEnvBulkTestConnection] = useState(true);
+
+  const [vmHistory, setVmHistory] = useState<PasswordHistoryEntry[]>([]);
+  const [vmHistoryLoading, setVmHistoryLoading] = useState(false);
+  const [restoringPassword, setRestoringPassword] = useState(false);
+  const [showVmHistory, setShowVmHistory] = useState(false);
   
   useEffect(() => {
     fetchVMGroups();
@@ -92,6 +99,7 @@ export default function VMPasswordManager() {
   useEffect(() => {
     if (selectedVmId) {
       loadRateLimitInfo();
+      loadVmHistory();
     }
   }, [selectedVmId]);
   
@@ -126,6 +134,56 @@ export default function VMPasswordManager() {
       console.error('Failed to load history');
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const loadVmHistory = async () => {
+    if (!selectedVmId) return;
+    setVmHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/vms/${selectedVmId}/password/history`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVmHistory(data);
+      }
+    } catch {
+      console.error('Failed to load VM history');
+    } finally {
+      setVmHistoryLoading(false);
+    }
+  };
+
+  const handleRestorePassword = async (historyId: string, oldPassword: string) => {
+    if (!confirm(`This will restore the password to: "${oldPassword}". Continue?`)) {
+      return;
+    }
+
+    setRestoringPassword(true);
+    try {
+      const res = await fetch(`/api/vms/${selectedVmId}/password/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ historyId })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert(`Password restored successfully to: ${data.restoredPassword}`);
+        fetchVMGroups(true);
+        loadVmHistory();
+        loadHistory();
+        loadRateLimitInfo();
+      } else {
+        alert(data.message || data.error);
+      }
+    } catch {
+      alert('Failed to restore password');
+    } finally {
+      setRestoringPassword(false);
     }
   };
   
@@ -811,6 +869,101 @@ export default function VMPasswordManager() {
                 </button>
               </div>
             </div>
+          </div>
+          
+          {/* Password History & Restore Section */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RotateCcw size={18} className="text-green-400" />
+                <h3 className="text-sm font-semibold text-zinc-300">Password History & Restore</h3>
+              </div>
+              <button
+                onClick={() => setShowVmHistory(!showVmHistory)}
+                className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors"
+              >
+                {showVmHistory ? 'Hide' : 'Show'} History
+              </button>
+            </div>
+            
+            <div className="bg-green-500/10 border border-green-500/20 rounded p-3 text-xs text-green-400">
+              If the password was changed in the database but not on the VM, you can restore an old password from history.
+            </div>
+            
+            {showVmHistory && (
+              <>
+                {vmHistoryLoading ? (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="animate-spin text-zinc-500" size={20} />
+                  </div>
+                ) : vmHistory.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-zinc-500 mb-2">Previous passwords (click to restore):</div>
+                    {vmHistory.map((entry, index) => (
+                      <div 
+                        key={entry.id} 
+                        className={`p-3 rounded border ${
+                          entry.success 
+                            ? 'bg-zinc-800/50 border-zinc-700' 
+                            : 'bg-red-900/20 border-red-800/50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 text-xs mb-1">
+                              <span className="text-zinc-400">#{vmHistory.length - index}</span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                entry.operationType === 'auto' 
+                                  ? 'bg-orange-500/20 text-orange-400' 
+                                  : 'bg-blue-500/20 text-blue-400'
+                              }`}>
+                                {entry.operationType}
+                              </span>
+                              <span className="text-zinc-500">{formatDate(entry.createdAt)}</span>
+                              {!entry.success && (
+                                <span className="text-red-400">Failed: {entry.errorMessage}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-sm">
+                              {entry.oldPassword && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-zinc-500">Old:</span>
+                                  <code className="text-zinc-300 font-mono bg-zinc-900 px-1 rounded">
+                                    {showPassword ? entry.oldPassword : '••••••••'}
+                                  </code>
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1">
+                                <span className="text-zinc-500">New:</span>
+                                <code className="text-zinc-300 font-mono bg-zinc-900 px-1 rounded">
+                                  {showPassword ? entry.newPassword : '••••••••'}
+                                </code>
+                              </div>
+                            </div>
+                          </div>
+                          {entry.oldPassword && (
+                            <button
+                              onClick={() => handleRestorePassword(entry.id, entry.oldPassword)}
+                              disabled={restoringPassword}
+                              className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-xs transition-colors ml-3"
+                            >
+                              {restoringPassword ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <RotateCcw size={12} />
+                              )}
+                              Restore
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-zinc-600 text-sm">No password history for this VM</div>
+                )}
+              </>
+            )}
           </div>
           
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
