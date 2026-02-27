@@ -336,6 +336,70 @@ router.post('/:id/password/test',
   })
 );
 
+// Sync database password with actual VM password
+router.post('/:id/password/sync',
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const { actualPassword } = req.body;
+    const user = req.user as IUser;
+    const adminId = (user as any)._id?.toString() || (user as any).id;
+    
+    if (!actualPassword) {
+      res.status(400).json({ error: 'Actual password is required' });
+      return;
+    }
+    
+    const vm = await vmService.getById(req.params.id);
+    if (!vm) {
+      res.status(404).json({ error: 'VM not found' });
+      return;
+    }
+    
+    // Test connection with the actual password
+    const testVM = { ...vm, password: actualPassword };
+    const connTest = await sshService.testConnection(testVM);
+    
+    if (!connTest.success) {
+      res.status(400).json({ 
+        error: 'Connection failed with provided password', 
+        message: connTest.message 
+      });
+      return;
+    }
+    
+    // Password works on VM, update database
+    const oldDbPassword = vm.password;
+    await vmService.updatePassword(vm.id, actualPassword);
+    
+    await vmService.addPasswordHistory({
+      vmId: vm.id,
+      vmName: vm.name,
+      vmIp: vm.ip,
+      vmUsername: vm.username,
+      newPassword: actualPassword,
+      oldPassword: oldDbPassword,
+      operationType: 'manual',
+      changedBy: user.email,
+      changedById: adminId,
+      success: true,
+    });
+    
+    await logEvent({
+      actorId: adminId,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: 'VM_PASSWORD_CHANGED',
+      target: vm.name || 'VM',
+      metadata: { vmId: vm.id, method: 'sync' }
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Database synced with actual VM password' 
+    });
+  })
+);
+
 // Get rate limit info for a VM
 router.get('/:id/password/rate-limit',
   requireRole('admin'),

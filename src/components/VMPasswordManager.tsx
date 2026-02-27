@@ -90,6 +90,9 @@ export default function VMPasswordManager() {
   const [vmHistoryLoading, setVmHistoryLoading] = useState(false);
   const [restoringPassword, setRestoringPassword] = useState(false);
   const [showVmHistory, setShowVmHistory] = useState(false);
+
+  const [syncPassword, setSyncPassword] = useState('');
+  const [syncing, setSyncing] = useState(false);
   
   useEffect(() => {
     fetchVMGroups();
@@ -207,6 +210,43 @@ export default function VMPasswordManager() {
       setConnectionMessage('Failed to test connection');
     } finally {
       setTestingConnection(false);
+    }
+  };
+
+  const handleSyncPassword = async () => {
+    if (!syncPassword) {
+      alert('Please enter the actual VM password');
+      return;
+    }
+
+    if (!confirm('This will test the password and update the database if it works. Continue?')) {
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/vms/${selectedVmId}/password/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ actualPassword: syncPassword })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert('Database synced successfully! The password now matches the VM.');
+        setSyncPassword('');
+        fetchVMGroups(true);
+        loadVmHistory();
+        loadHistory();
+      } else {
+        alert(data.message || data.error);
+      }
+    } catch {
+      alert('Failed to sync password');
+    } finally {
+      setSyncing(false);
     }
   };
   
@@ -771,6 +811,52 @@ export default function VMPasswordManager() {
             </div>
             
             {renderRateLimitText(manualRateLimit, 'manual')}
+          </div>
+          
+          {/* Sync Database with VM Password */}
+          <div className="bg-zinc-900 border border-orange-500/30 rounded-lg p-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={18} className="text-orange-400" />
+              <h3 className="text-sm font-semibold text-zinc-300">Sync Database with VM</h3>
+            </div>
+            
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded p-3 text-xs text-orange-400">
+              If the password in the database doesn't match the actual VM password, enter the correct password below to sync.
+            </div>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Actual VM Password</label>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={syncPassword}
+                      onChange={(e) => setSyncPassword(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-orange-500 pr-10"
+                      placeholder="Enter the actual password on the VM"
+                    />
+                    <button
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                    >
+                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleSyncPassword}
+                    disabled={syncing || !syncPassword}
+                    className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
+                  >
+                    {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    Sync
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500">
+                This will test the password on the VM and update the database if successful.
+              </p>
+            </div>
           </div>
           
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
