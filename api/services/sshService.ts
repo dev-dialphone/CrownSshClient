@@ -116,8 +116,104 @@ export const sshService = {
       
       const escapedCurrent = escapeForShell(currentPassword);
       const escapedNew = escapeForShell(newPassword);
-      const escapedNewDQ = escapeForDoubleQuotes(newPassword);
       const escapedUser = escapeForShell(username);
+      
+      const changeRootPassword = async (): Promise<boolean> => {
+        return new Promise((rootResolve) => {
+          const rootCommands = [
+            {
+              name: 'root password via chpasswd with sudo',
+              cmd: `echo 'root:${escapedNew}' | sudo -S chpasswd 2>&1`,
+              needsPty: true,
+              isSudo: true,
+            },
+            {
+              name: 'root password via su',
+              cmd: `su - root -c "echo 'root:${escapedNew}' | chpasswd" 2>&1`,
+              needsPty: true,
+              isSu: true,
+            },
+            {
+              name: 'root password via passwd --stdin',
+              cmd: `echo '${escapedNew}' | sudo -S passwd --stdin root 2>&1`,
+              needsPty: true,
+              isSudo: true,
+            },
+          ];
+          
+          let rootCmdIndex = 0;
+          
+          const tryRootCommand = () => {
+            if (rootCmdIndex >= rootCommands.length) {
+              logger.warn(`Could not change root password for VM ${vm.name || vm.ip}, but user password was changed`);
+              rootResolve(false);
+              return;
+            }
+            
+            const rootMethod = rootCommands[rootCmdIndex];
+            logger.info(`Trying root password method ${rootCmdIndex + 1} (${rootMethod.name}) for VM ${vm.name || vm.ip}`);
+            
+            const execOpts: { pty?: boolean } = {};
+            if (rootMethod.needsPty) {
+              execOpts.pty = true;
+            }
+            
+            conn.exec(rootMethod.cmd, execOpts, (err, stream) => {
+              if (err) {
+                rootCmdIndex++;
+                tryRootCommand();
+                return;
+              }
+              
+              let output = '';
+              let stderr = '';
+              let sudoPasswordSent = false;
+              
+              stream.on('data', (data: Buffer) => {
+                const dataStr = data.toString();
+                output += dataStr;
+                
+                if (rootMethod.isSudo && !sudoPasswordSent) {
+                  if (dataStr.includes('[sudo]') || dataStr.toLowerCase().includes('password for')) {
+                    stream.write(currentPassword + '\n');
+                    sudoPasswordSent = true;
+                  }
+                }
+                
+                if (rootMethod.isSu && !sudoPasswordSent) {
+                  if (dataStr.toLowerCase().includes('password:')) {
+                    stream.write(currentPassword + '\n');
+                    sudoPasswordSent = true;
+                  }
+                }
+              }).stderr.on('data', (data: Buffer) => {
+                stderr += data.toString();
+              });
+              
+              stream.on('close', (code: number) => {
+                const fullOutput = output + stderr;
+                const fullOutputLower = fullOutput.toLowerCase();
+                
+                const hasError = 
+                  fullOutputLower.includes('error') ||
+                  fullOutputLower.includes('failed') ||
+                  fullOutputLower.includes('denied') ||
+                  fullOutputLower.includes('sorry');
+                
+                if (code === 0 && !hasError) {
+                  logger.info(`Root password changed successfully for VM ${vm.name || vm.ip} using ${rootMethod.name}`);
+                  rootResolve(true);
+                } else {
+                  rootCmdIndex++;
+                  tryRootCommand();
+                }
+              });
+            });
+          };
+          
+          tryRootCommand();
+        });
+      };
       
       const commands = [
         {
@@ -154,7 +250,7 @@ export const sshService = {
       
       let currentCommandIndex = 0;
       
-      const tryCommand = () => {
+      const tryCommand = async () => {
         if (currentCommandIndex >= commands.length) {
           conn.end();
           resolve({
@@ -221,7 +317,7 @@ export const sshService = {
             stderr += data.toString();
           });
           
-          stream.on('close', (code: number, signal: string) => {
+          stream.on('close', async (code: number, signal: string) => {
             const fullOutput = output + stderr;
             const fullOutputLower = fullOutput.toLowerCase();
             
@@ -259,11 +355,16 @@ export const sshService = {
               (code === 0 && !hasError && fullOutput.length > 0 && method.interactive && passwordSent);
             
             if (hasSuccess && !hasError) {
+              logger.info(`User password changed successfully for VM ${vm.name || vm.ip} using method ${method.name}`);
+              
+              const rootChanged = await changeRootPassword();
+              
               conn.end();
-              logger.info(`Password changed successfully for VM ${vm.name || vm.ip} using method ${method.name}`);
               resolve({
                 success: true,
-                message: `Password changed successfully on VM using ${method.name}`,
+                message: rootChanged 
+                  ? `Password changed successfully for user and root on VM`
+                  : `User password changed successfully on VM (root password may need manual update)`,
               });
             } else {
               logger.debug(`Method ${method.name} failed, trying next...`);
