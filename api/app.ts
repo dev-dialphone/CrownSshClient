@@ -24,7 +24,6 @@ import { Setting } from './models/Setting.js'
 import { initWebPush } from './services/pushService.js'
 import { startHealthMonitor } from './services/healthService.js'
 import { emailService } from './services/emailService.js'
-import { migrateEnvironmentCommands } from './services/environmentService.js'
 
 import authRoutes from './routes/auth.js'
 import vmRoutes from './routes/vms.js'
@@ -318,8 +317,5 @@ app.use((req: Request, res: Response) => {
 // Bootstrap Web Push and health monitoring services
 initWebPush();
 startHealthMonitor();
-
-// Run migrations
-migrateEnvironmentCommands();
 
 export default app

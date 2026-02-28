@@ -5,6 +5,7 @@ import './config/loadEnv.js';
 import app from './app.js';
 import { initWebSocket } from './services/socketService.js';
 import connectDB from './config/db.js';
+import { migrateEnvironmentCommands } from './services/environmentService.js';
 import mongoose from 'mongoose';
 import { connection as redisConnection } from './config/redis.js';
 import './workers/executionWorker.js';
@@ -16,43 +17,56 @@ import logger from './utils/logger.js';
  */
 const PORT = process.env.PORT;
 
-// Connect to Database
-connectDB();
+const startServer = async () => {
+  try {
+    // Connect to Database FIRST
+    await connectDB();
+    
+    // Run migrations AFTER DB is connected
+    await migrateEnvironmentCommands();
+    
+    // Start server
+    const server = app.listen(PORT, () => {
+      logger.info(`Server ready on port ${PORT}`);
+    });
 
-const server = app.listen(PORT, () => {
-  logger.info(`Server ready on port ${PORT}`);
-});
+    initWebSocket(server);
 
-initWebSocket(server);
+    const gracefulShutdown = async (signal: string) => {
+      logger.info(`${signal} signal received. Closing HTTP server...`);
 
-const gracefulShutdown = async (signal: string) => {
-  logger.info(`${signal} signal received. Closing HTTP server...`);
+      server.close(async () => {
+        logger.info('HTTP server closed. Closing connections...');
 
-  server.close(async () => {
-    logger.info('HTTP server closed. Closing connections...');
+        try {
+          await mongoose.connection.close();
+          logger.info('MongoDB connection closed.');
 
-    try {
-      await mongoose.connection.close();
-      logger.info('MongoDB connection closed.');
+          await redisConnection.quit();
+          logger.info('Redis connection closed.');
 
-      await redisConnection.quit();
-      logger.info('Redis connection closed.');
+          process.exit(0);
+        } catch (err) {
+          logger.error('Error during graceful shutdown:', err);
+          process.exit(1);
+        }
+      });
 
-      process.exit(0);
-    } catch (err) {
-      logger.error('Error during graceful shutdown:', err);
-      process.exit(1);
-    }
-  });
+      // Force shutdown if taking too long
+      setTimeout(() => {
+        logger.error('Could not close connections in time, forcefully shutting down');
+        process.exit(1);
+      }, 10000);
+    };
 
-  // Force shutdown if taking too long
-  setTimeout(() => {
-    logger.error('Could not close connections in time, forcefully shutting down');
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  } catch (error) {
+    logger.error('Failed to start server:', error);
     process.exit(1);
-  }, 10000);
+  }
 };
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+startServer();
 
 export default app;

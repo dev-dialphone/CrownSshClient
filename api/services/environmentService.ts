@@ -2,12 +2,23 @@ import { Environment, IEnvironment } from '../models/Environment.js';
 import { VMModel } from '../models/VM.js';
 import logger from '../utils/logger.js';
 import { DEFAULT_ENVIRONMENTS, getDefaultCommand } from '../config/defaultEnvironments.js';
+import mongoose from 'mongoose';
+
+const isDbConnected = (): boolean => {
+  return mongoose.connection.readyState === 1;
+};
 
 export const migrateEnvironmentCommands = async (): Promise<void> => {
+  if (!isDbConnected()) {
+    logger.warn('MongoDB not connected, skipping environment command migration');
+    return;
+  }
+  
   try {
     logger.info('Running environment command migration...');
     const envs = await Environment.find();
     
+    let migratedCount = 0;
     for (const defaultEnv of DEFAULT_ENVIRONMENTS) {
       const existingEnv = envs.find(e => e.name.toUpperCase() === defaultEnv.name.toUpperCase());
       
@@ -19,17 +30,23 @@ export const migrateEnvironmentCommands = async (): Promise<void> => {
           logger.info(`  New: ${defaultEnv.command.substring(0, 80)}...`);
           await Environment.findByIdAndUpdate(existingEnv._id, { command: defaultEnv.command });
           logger.info(`Migrated environment ${existingEnv.name}`);
+          migratedCount++;
         }
       }
     }
     
-    logger.info('Environment command migration completed');
+    logger.info(`Environment command migration completed (${migratedCount} environments updated)`);
   } catch (error) {
     logger.error('Environment command migration failed:', error);
   }
 };
 
 const fixEnvironmentCommands = async (envs: IEnvironment[]): Promise<void> => {
+  if (!isDbConnected()) {
+    logger.warn('MongoDB not connected, skipping environment command fix');
+    return;
+  }
+  
   for (const env of envs) {
     const correctCommand = getDefaultCommand(env.name);
     if (correctCommand) {
