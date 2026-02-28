@@ -27,8 +27,7 @@ export const CommandExecutor: React.FC = () => {
   const currentEnv = environments.find(e => e.id === selectedEnvId);
   const selectedVMs = allVMs.filter(v => selectedVmIds.includes(v.id));
   const activeVM = selectedVMs.find(v => v.id === activeTerminalVmId);
-  const GLOBAL_DEFAULT = "echo '{{PASSWORD}}' | su -c 'cd /usr/local/freeswitch/bin/ && ps aux | grep freeswitch && pkill -9 freeswitch && sync && echo 3 > /proc/sys/vm/drop_caches && ./freeswitch'";
-  const DEFAULT_COMMAND = currentEnv?.command || GLOBAL_DEFAULT;
+  const DEFAULT_COMMAND = currentEnv?.command || '';
 
   const [command, setCommand] = useState(DEFAULT_COMMAND);
 

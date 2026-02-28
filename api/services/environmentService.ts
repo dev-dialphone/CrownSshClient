@@ -1,13 +1,26 @@
 import { Environment, IEnvironment } from '../models/Environment.js';
 import { VMModel } from '../models/VM.js';
 import logger from '../utils/logger.js';
-import { DEFAULT_ENVIRONMENTS } from '../config/defaultEnvironments.js';
+import { DEFAULT_ENVIRONMENTS, getDefaultCommand } from '../config/defaultEnvironments.js';
 
+const fixEnvironmentCommands = async (envs: IEnvironment[]): Promise<void> => {
+  for (const env of envs) {
+    const correctCommand = getDefaultCommand(env.name);
+    if (correctCommand && env.command !== correctCommand) {
+      logger.info(`Fixing command for environment ${env.name} (was: ${env.command?.substring(0, 50)}...)`);
+      await Environment.findByIdAndUpdate(env._id, { command: correctCommand });
+      env.command = correctCommand;
+      logger.info(`Updated environment ${env.name} with correct command`);
+    }
+  }
+};
 
 export const environmentService = {
   async getAll(): Promise<(IEnvironment & { vmCount: number })[]> {
     try {
       const envs = await Environment.find();
+      
+      await fixEnvironmentCommands(envs);
 
       // --- AUTO-REPAIR LOGIC ---
       // If 'OPS' is missing but we have VMs that don't belong to any environment,
@@ -91,9 +104,10 @@ export const environmentService = {
   },
 
   async add(name: string): Promise<IEnvironment> {
+    const defaultCommand = getDefaultCommand(name);
     const newEnv = new Environment({
       name,
-      command: "echo '{{PASSWORD}}' | su -c 'cd /usr/local/freeswitch/bin/ && ps aux | grep freeswitch && pkill -9 freeswitch && sync && echo 3 > /proc/sys/vm/drop_caches && ./freeswitch'"
+      command: defaultCommand,
     });
     await newEnv.save();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

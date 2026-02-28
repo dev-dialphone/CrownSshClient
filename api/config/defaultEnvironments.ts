@@ -16,3 +16,8 @@ export const DEFAULT_ENVIRONMENTS = [
         command: "echo '{{PASSWORD}}' | su -c '/etc/init.d/mgcd restart && /etc/init.d/vos3000d restart && /etc/init.d/webserverd restart && /etc/init.d/webdatad restart && /etc/init.d/callserviced restart && /etc/init.d/servermonitord restart && /etc/init.d/mbx3000d restart && /etc/init.d/valueaddedd restart && /etc/init.d/diald restart'"
     }
 ];
+
+export const getDefaultCommand = (name: string): string => {
+    const env = DEFAULT_ENVIRONMENTS.find(e => e.name.toUpperCase() === name.toUpperCase());
+    return env?.command || '';
+};
