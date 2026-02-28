@@ -15,6 +15,9 @@ router.use(requireAuth);
 
 // GET: Any authenticated user can list environments
 router.get('/', asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   const envs = await environmentService.getAll();
   res.json(envs);
 }));

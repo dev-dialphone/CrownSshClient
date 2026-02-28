@@ -9,14 +9,23 @@ const isDbConnected = (): boolean => {
 };
 
 export const migrateEnvironmentCommands = async (): Promise<void> => {
-  if (!isDbConnected()) {
-    logger.warn('MongoDB not connected, skipping environment command migration');
-    return;
-  }
-  
   try {
-    logger.info('Running environment command migration...');
+    logger.info('=== ENVIRONMENT MIGRATION START ===');
+    logger.info(`DB Connection State: ${mongoose.connection.readyState} (1=connected)`);
+    
+    if (!isDbConnected()) {
+      logger.warn('MongoDB not connected, skipping environment command migration');
+      return;
+    }
+    
     const envs = await Environment.find();
+    logger.info(`Found ${envs.length} environments in DB`);
+    
+    for (const env of envs) {
+      logger.info(`DB Environment: "${env.name}" -> Command: "${(env.command || '').substring(0, 60)}..."`);
+    }
+    
+    logger.info(`Default environments to check: ${DEFAULT_ENVIRONMENTS.map(d => d.name).join(', ')}`);
     
     let migratedCount = 0;
     for (const defaultEnv of DEFAULT_ENVIRONMENTS) {
@@ -24,20 +33,27 @@ export const migrateEnvironmentCommands = async (): Promise<void> => {
       
       if (existingEnv) {
         const currentCommand = existingEnv.command || '';
-        if (currentCommand !== defaultEnv.command) {
-          logger.info(`Migrating command for environment ${existingEnv.name}`);
-          logger.info(`  Old: ${currentCommand.substring(0, 80)}...`);
-          logger.info(`  New: ${defaultEnv.command.substring(0, 80)}...`);
+        const commandsMatch = currentCommand === defaultEnv.command;
+        logger.info(`Comparing "${existingEnv.name}": match=${commandsMatch}`);
+        
+        if (!commandsMatch) {
+          logger.info(`  NEEDS UPDATE for ${existingEnv.name}`);
+          logger.info(`  OLD: ${currentCommand.substring(0, 80)}`);
+          logger.info(`  NEW: ${defaultEnv.command.substring(0, 80)}`);
           await Environment.findByIdAndUpdate(existingEnv._id, { command: defaultEnv.command });
-          logger.info(`Migrated environment ${existingEnv.name}`);
+          logger.info(`  UPDATED ${existingEnv.name}`);
           migratedCount++;
+        } else {
+          logger.info(`  OK - ${existingEnv.name} already has correct command`);
         }
+      } else {
+        logger.info(`No existing environment found for "${defaultEnv.name}"`);
       }
     }
     
-    logger.info(`Environment command migration completed (${migratedCount} environments updated)`);
+    logger.info(`=== ENVIRONMENT MIGRATION END: ${migratedCount} updated ===`);
   } catch (error) {
-    logger.error('Environment command migration failed:', error);
+    logger.error('Environment command migration FAILED:', error);
   }
 };
 
@@ -47,17 +63,21 @@ const fixEnvironmentCommands = async (envs: IEnvironment[]): Promise<void> => {
     return;
   }
   
+  logger.info(`fixEnvironmentCommands: Checking ${envs.length} environments`);
+  
   for (const env of envs) {
     const correctCommand = getDefaultCommand(env.name);
+    logger.info(`Checking env "${env.name}": correctCommand=${correctCommand ? 'YES' : 'NO'}, current="${(env.command || '').substring(0, 40)}..."`);
+    
     if (correctCommand) {
       const currentCommand = env.command || '';
       if (currentCommand !== correctCommand) {
-        logger.info(`Fixing command for environment ${env.name}`);
-        logger.info(`  Old: ${currentCommand.substring(0, 80)}...`);
-        logger.info(`  New: ${correctCommand.substring(0, 80)}...`);
+        logger.info(`FIXING command for ${env.name}`);
+        logger.info(`  OLD: ${currentCommand.substring(0, 80)}`);
+        logger.info(`  NEW: ${correctCommand.substring(0, 80)}`);
         await Environment.findByIdAndUpdate(env._id, { command: correctCommand });
         env.command = correctCommand;
-        logger.info(`Updated environment ${env.name} with correct command`);
+        logger.info(`FIXED ${env.name}`);
       }
     }
   }
