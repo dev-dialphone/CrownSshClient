@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useVMStore } from '../store/vmStore';
 import { useEnvStore } from '../store/envStore';
-import { useAuthStore } from '../store/authStore';
 import { Play, Terminal as TerminalIcon, RotateCcw } from 'lucide-react';
 
 export const CommandExecutor: React.FC = () => {
-  // Split store selectors to avoid re-renders when unrelated state changes
   const logs = useVMStore(state => state.logs);
   const statuses = useVMStore(state => state.statuses);
   const activeTerminalVmId = useVMStore(state => state.activeTerminalVmId);
@@ -15,27 +13,42 @@ export const CommandExecutor: React.FC = () => {
 
   const allVMs = useMemo(() => vmGroups.flatMap(g => g.vms), [vmGroups]);
 
-  // Actions (stable)
   const setActiveTerminalVmId = useVMStore(state => state.setActiveTerminalVmId);
   const addLog = useVMStore(state => state.addLog);
   const updateStatus = useVMStore(state => state.updateStatus);
   const clearLogs = useVMStore(state => state.clearLogs);
 
-  const { environments, selectedEnvId } = useEnvStore();
-  const { isAdmin } = useAuthStore();
+  const { environments } = useEnvStore();
 
-  const currentEnv = environments.find(e => e.id === selectedEnvId);
   const selectedVMs = allVMs.filter(v => selectedVmIds.includes(v.id));
   const activeVM = selectedVMs.find(v => v.id === activeTerminalVmId);
-  const DEFAULT_COMMAND = currentEnv?.command || '';
 
-  const [command, setCommand] = useState(DEFAULT_COMMAND);
-
-  useEffect(() => {
-    if (currentEnv?.command) {
-      setCommand(currentEnv.command);
+  const envCommandMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const env of environments) {
+      map.set(env.id, env.command || '');
     }
-  }, [currentEnv?.id, currentEnv?.command]);
+    return map;
+  }, [environments]);
+
+  const vmCommands = useMemo(() => {
+    return selectedVMs.map(vm => ({
+      vm,
+      command: envCommandMap.get(vm.environmentId || '') || ''
+    }));
+  }, [selectedVMs, envCommandMap]);
+
+  const uniqueCommands = useMemo(() => {
+    const commands = new Map<string, { envName: string; vmNames: string[] }>();
+    for (const { vm, command } of vmCommands) {
+      const envName = environments.find(e => e.id === vm.environmentId)?.name || 'Unknown';
+      if (!commands.has(command)) {
+        commands.set(command, { envName, vmNames: [] });
+      }
+      commands.get(command)!.vmNames.push(vm.name);
+    }
+    return commands;
+  }, [vmCommands, environments]);
 
   const [isExecuting, setIsExecuting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -99,7 +112,7 @@ export const CommandExecutor: React.FC = () => {
   }, [logs]);
 
   const handleExecute = async () => {
-    if (selectedVmIds.length === 0 || !command) return;
+    if (selectedVmIds.length === 0) return;
 
     setIsExecuting(true);
     clearLogs();
@@ -110,7 +123,7 @@ export const CommandExecutor: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ vmIds: selectedVmIds, command }),
+        body: JSON.stringify({ vmIds: selectedVmIds }),
       });
     } catch (error) {
       console.error('Execution failed', error);
@@ -145,38 +158,33 @@ export const CommandExecutor: React.FC = () => {
 
       <div className="p-3 md:p-4 space-y-3 md:space-y-4 flex-shrink-0">
         <div>
-          <label className="block text-xs font-medium text-zinc-500 mb-1 uppercase tracking-wider">Command</label>
-          {isAdmin ? (
-            <>
-              <textarea
-                className="w-full bg-zinc-900 border border-zinc-800 rounded p-2 md:p-3 text-xs md:text-sm font-mono focus:outline-none focus:border-blue-500 transition-colors h-20 md:h-24"
-                value={command}
-                onChange={(e) => setCommand(e.target.value)}
-              />
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-2 gap-2">
-                <p className="text-xs text-zinc-500 hidden sm:block">
-                  Tip: Use <code className="bg-zinc-800 px-1 rounded text-zinc-300">{"{{PASSWORD}}"}</code> as a placeholder.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setCommand(command + "{{PASSWORD}}")}
-                    className="text-xs px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 transition-colors"
-                  >
-                    + Password
-                  </button>
-                  <button
-                    onClick={() => setCommand(DEFAULT_COMMAND)}
-                    className="text-xs px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 transition-colors"
-                  >
-                    Reset
-                  </button>
-                </div>
-              </div>
-            </>
+          <label className="block text-xs font-medium text-zinc-500 mb-2 uppercase tracking-wider">
+            Commands to Execute (by Environment)
+          </label>
+          {selectedVMs.length === 0 ? (
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded p-3 text-xs text-zinc-500">
+              Select VMs from the sidebar to see commands
+            </div>
           ) : (
-            <div className="bg-zinc-900/50 border border-zinc-800 rounded p-2 md:p-3 text-xs font-mono text-zinc-400 break-all">
-              <div className="select-none text-zinc-600 mb-1 uppercase text-[10px] tracking-wider font-bold">Executing Command:</div>
-              {command}
+            <div className="space-y-2">
+              {Array.from(uniqueCommands.entries()).map(([cmd, info], idx) => (
+                <div key={idx} className="bg-zinc-900/50 border border-zinc-800 rounded p-2 md:p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
+                      {info.envName}
+                    </span>
+                    <span className="text-xs text-zinc-500">
+                      {info.vmNames.length} VM{info.vmNames.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="text-xs font-mono text-zinc-400 break-all bg-black/50 p-2 rounded">
+                    {cmd || <span className="text-zinc-600 italic">No command configured</span>}
+                  </div>
+                  <div className="text-xs text-zinc-600 mt-1 truncate">
+                    VMs: {info.vmNames.join(', ')}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
