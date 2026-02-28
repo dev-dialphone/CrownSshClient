@@ -45,6 +45,7 @@ export const EnvironmentVMTree: React.FC = () => {
   const { environments, fetchEnvironments, addEnvironment, deleteEnvironment, updateEnvironment, resetCommands } = useEnvStore();
   const { user, logout, isAdmin } = useAuthStore();
 
+
   const [isAddingVM, setIsAddingVM] = useState(false);
   const [isAddingEnv, setIsAddingEnv] = useState(false);
   const [newEnvName, setNewEnvName] = useState('');
@@ -138,11 +139,11 @@ export const EnvironmentVMTree: React.FC = () => {
 
   const handleResetCommands = async () => {
     if (!confirm('Reset all environment commands to their default values? This will update IVG, OPS, and VOSS commands.')) return;
-    
+
     setIsResettingCommands(true);
     const result = await resetCommands();
     setIsResettingCommands(false);
-    
+
     if (result.success) {
       alert(`Successfully updated ${result.updatedCount} environment(s)`);
     } else {
