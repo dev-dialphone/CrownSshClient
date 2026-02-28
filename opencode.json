@@ -39,7 +39,7 @@
       },
       "models": {
         "meta/llama-4-maverick-17b-128e-instruct-maas": {
-          "name": "Llama 4 Maverick (Vertex)"
+          "name": "Llama 4 Scout (Vertex)"
         }
       }
     }

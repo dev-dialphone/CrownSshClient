@@ -10,6 +10,7 @@ interface EnvState {
   updateEnvironment: (id: string, data: Partial<Environment>) => Promise<void>;
   deleteEnvironment: (id: string, totpCode?: string) => Promise<{ success: boolean; error?: string }>;
   selectEnvironment: (id: string) => void;
+  resetCommands: () => Promise<{ success: boolean; updatedCount?: number; error?: string }>;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -116,5 +117,27 @@ export const useEnvStore = create<EnvState>((set, get) => ({
 
   selectEnvironment: (id: string) => {
     set({ selectedEnvId: id });
+  },
+
+  resetCommands: async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/environments/reset-commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      
+      if (!res.ok) {
+        const err = await res.json();
+        return { success: false, error: err.error || 'Failed to reset commands' };
+      }
+      
+      const data = await res.json();
+      set({ environments: data.environments });
+      return { success: true, updatedCount: data.updatedCount };
+    } catch (error) {
+      console.error('Failed to reset commands', error);
+      return { success: false, error: 'Network error' };
+    }
   }
 }));

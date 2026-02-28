@@ -19,7 +19,8 @@ import {
   ShieldCheck,
   Shield,
   Settings,
-  Save
+  Save,
+  RefreshCw
 } from 'lucide-react';
 import { VM } from '../types';
 import { TwoFactorSetup } from './TwoFactorSetup';
@@ -41,7 +42,7 @@ export const EnvironmentVMTree: React.FC = () => {
   const deleteVM = useVMStore(state => state.deleteVM);
   const fetchVMGroups = useVMStore(state => state.fetchVMGroups);
 
-  const { environments, fetchEnvironments, addEnvironment, deleteEnvironment, updateEnvironment } = useEnvStore();
+  const { environments, fetchEnvironments, addEnvironment, deleteEnvironment, updateEnvironment, resetCommands } = useEnvStore();
   const { user, logout, isAdmin } = useAuthStore();
 
   const [isAddingVM, setIsAddingVM] = useState(false);
@@ -54,6 +55,7 @@ export const EnvironmentVMTree: React.FC = () => {
   const [show2FASetup, setShow2FASetup] = useState(false);
   const [deletingEnvId, setDeletingEnvId] = useState<string | null>(null);
   const [deletingEnvName, setDeletingEnvName] = useState('');
+  const [isResettingCommands, setIsResettingCommands] = useState(false);
 
   useEffect(() => {
     fetchVMGroups();
@@ -132,6 +134,20 @@ export const EnvironmentVMTree: React.FC = () => {
       setDeletingEnvName('');
     }
     return result;
+  };
+
+  const handleResetCommands = async () => {
+    if (!confirm('Reset all environment commands to their default values? This will update IVG, OPS, and VOSS commands.')) return;
+    
+    setIsResettingCommands(true);
+    const result = await resetCommands();
+    setIsResettingCommands(false);
+    
+    if (result.success) {
+      alert(`Successfully updated ${result.updatedCount} environment(s)`);
+    } else {
+      alert(`Failed to reset commands: ${result.error}`);
+    }
   };
 
   const getEnvVmIds = (envId: string): string[] => {
@@ -213,9 +229,19 @@ export const EnvironmentVMTree: React.FC = () => {
             {allExpanded ? 'Collapse' : 'Expand'}
           </button>
           {isAdmin && (
-            <button onClick={() => setIsAddingEnv(!isAddingEnv)} className="text-zinc-500 hover:text-white">
-              <Plus size={16} />
-            </button>
+            <>
+              <button
+                onClick={handleResetCommands}
+                disabled={isResettingCommands}
+                className="text-xs text-zinc-500 hover:text-blue-400 px-2 py-1 rounded hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                title="Reset Commands"
+              >
+                {isResettingCommands ? <Loader size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              </button>
+              <button onClick={() => setIsAddingEnv(!isAddingEnv)} className="text-zinc-500 hover:text-white">
+                <Plus size={16} />
+              </button>
+            </>
           )}
         </div>
       </div>
