@@ -3,14 +3,45 @@ import { VMModel } from '../models/VM.js';
 import logger from '../utils/logger.js';
 import { DEFAULT_ENVIRONMENTS, getDefaultCommand } from '../config/defaultEnvironments.js';
 
+export const migrateEnvironmentCommands = async (): Promise<void> => {
+  try {
+    logger.info('Running environment command migration...');
+    const envs = await Environment.find();
+    
+    for (const defaultEnv of DEFAULT_ENVIRONMENTS) {
+      const existingEnv = envs.find(e => e.name.toUpperCase() === defaultEnv.name.toUpperCase());
+      
+      if (existingEnv) {
+        const currentCommand = existingEnv.command || '';
+        if (currentCommand !== defaultEnv.command) {
+          logger.info(`Migrating command for environment ${existingEnv.name}`);
+          logger.info(`  Old: ${currentCommand.substring(0, 80)}...`);
+          logger.info(`  New: ${defaultEnv.command.substring(0, 80)}...`);
+          await Environment.findByIdAndUpdate(existingEnv._id, { command: defaultEnv.command });
+          logger.info(`Migrated environment ${existingEnv.name}`);
+        }
+      }
+    }
+    
+    logger.info('Environment command migration completed');
+  } catch (error) {
+    logger.error('Environment command migration failed:', error);
+  }
+};
+
 const fixEnvironmentCommands = async (envs: IEnvironment[]): Promise<void> => {
   for (const env of envs) {
     const correctCommand = getDefaultCommand(env.name);
-    if (correctCommand && env.command !== correctCommand) {
-      logger.info(`Fixing command for environment ${env.name} (was: ${env.command?.substring(0, 50)}...)`);
-      await Environment.findByIdAndUpdate(env._id, { command: correctCommand });
-      env.command = correctCommand;
-      logger.info(`Updated environment ${env.name} with correct command`);
+    if (correctCommand) {
+      const currentCommand = env.command || '';
+      if (currentCommand !== correctCommand) {
+        logger.info(`Fixing command for environment ${env.name}`);
+        logger.info(`  Old: ${currentCommand.substring(0, 80)}...`);
+        logger.info(`  New: ${correctCommand.substring(0, 80)}...`);
+        await Environment.findByIdAndUpdate(env._id, { command: correctCommand });
+        env.command = correctCommand;
+        logger.info(`Updated environment ${env.name} with correct command`);
+      }
     }
   }
 };
