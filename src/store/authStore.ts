@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { User } from '../types';
+import { User, UserPermission } from '../types';
 
 interface AuthState {
   user: User | null;
@@ -10,11 +10,14 @@ interface AuthState {
   checkAuth: () => Promise<void>;
   logout: () => Promise<void>;
   verifyPin: (pin: string) => Promise<boolean>;
+  hasPermission: (permission: UserPermission) => boolean;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
-export const useAuthStore = create<AuthState>((set) => ({
+const DEFAULT_PERMISSIONS: UserPermission[] = ['env', 'exec', 'monitor'];
+
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: true,
   error: null,
@@ -77,5 +80,13 @@ export const useAuthStore = create<AuthState>((set) => ({
       console.error('PIN verification failed', error);
       return false;
     }
-  }
+  },
+
+  hasPermission: (permission: UserPermission) => {
+    const { user, isAdmin } = get();
+    if (isAdmin) return true;
+    if (!user) return false;
+    const userPermissions = user.permissions || DEFAULT_PERMISSIONS;
+    return userPermissions.includes(permission);
+  },
 }));

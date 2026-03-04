@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export type UserRole = 'admin' | 'user';
 export type UserStatus = 'pending' | 'active' | 'rejected' | 'blocked';
+export type UserPermission = 'env' | 'exec' | 'monitor';
 
 export interface IUser extends Document {
     googleId: string;
@@ -14,7 +15,10 @@ export interface IUser extends Document {
     isTempAccess: boolean;
     totpSecret?: string;
     isTotpEnabled: boolean;
+    permissions: UserPermission[];
 }
+
+const DEFAULT_USER_PERMISSIONS: UserPermission[] = ['env', 'exec', 'monitor'];
 
 const UserSchema: Schema = new Schema({
     googleId: { type: String, required: true, unique: true },
@@ -27,6 +31,7 @@ const UserSchema: Schema = new Schema({
     isTempAccess: { type: Boolean, default: false },
     totpSecret: { type: String },
     isTotpEnabled: { type: Boolean, default: false },
+    permissions: { type: [String], enum: ['env', 'exec', 'monitor'], default: DEFAULT_USER_PERMISSIONS },
 }, {
     timestamps: true,
 });

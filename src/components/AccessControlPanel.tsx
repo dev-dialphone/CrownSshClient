@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Lock, Save, CheckCircle, Ban, UserCheck, UserX, RefreshCw, Shield, Users } from 'lucide-react';
+import { Lock, Save, CheckCircle, Ban, UserCheck, UserX, RefreshCw, Shield, Users, Settings2 } from 'lucide-react';
+import { UserPermission } from '../types';
 
 interface UserEntry {
     _id: string;
@@ -10,7 +11,16 @@ interface UserEntry {
     accessExpiresAt?: string;
     isTempAccess: boolean;
     createdAt: string;
+    permissions?: UserPermission[];
 }
+
+const PERMISSION_LABELS: Record<UserPermission, { label: string; description: string }> = {
+    env: { label: 'Environments & VMs', description: 'View environments and VMs' },
+    exec: { label: 'Execute Commands', description: 'Run commands on VMs' },
+    monitor: { label: 'Monitoring', description: 'View live metrics' },
+};
+
+const DEFAULT_PERMISSIONS: UserPermission[] = ['env', 'exec', 'monitor'];
 
 const DURATION_OPTIONS = [
     { label: 'Permanent', days: null },
@@ -147,6 +157,23 @@ export default function AccessControlPanel() {
         fetchData();
     };
 
+    const updatePermissions = async (userId: string, permissions: UserPermission[]) => {
+        await fetch(`/api/access-requests/${userId}/permissions`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ permissions }),
+        });
+        fetchData();
+    };
+
+    const togglePermission = (userId: string, permission: UserPermission, currentPermissions: UserPermission[]) => {
+        const hasPermission = currentPermissions.includes(permission);
+        const newPermissions = hasPermission
+            ? currentPermissions.filter(p => p !== permission)
+            : [...currentPermissions, permission];
+        updatePermissions(userId, newPermissions);
+    };
+
     if (loading) {
         return <div className="flex items-center justify-center h-64 text-zinc-500 text-sm animate-pulse">Loading users...</div>;
     }
@@ -155,70 +182,105 @@ export default function AccessControlPanel() {
     const active = users.filter(u => u.status === 'active');
     const blocked = users.filter(u => u.status === 'blocked');
 
-    const UserRow = ({ user, showActions = true }: { user: UserEntry; showActions?: boolean }) => (
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 rounded-lg bg-zinc-900 border border-zinc-800">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-                <img
-                    src={user.photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=27272a&color=a1a1aa`}
-                    className="w-9 h-9 rounded-full flex-shrink-0"
-                    alt={user.displayName}
-                />
-                <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm text-zinc-100 truncate">{user.displayName}</div>
-                    <div className="text-xs text-zinc-500 truncate">{user.email}</div>
-                    {user.accessExpiresAt && (
-                        <div className="text-xs text-zinc-600 mt-0.5">
-                            Expires: {new Date(user.accessExpiresAt).toLocaleDateString()}
+    const UserRow = ({ user, showActions = true }: { user: UserEntry; showActions?: boolean }) => {
+        const userPermissions = user.permissions || DEFAULT_PERMISSIONS;
+
+        return (
+            <div className="flex flex-col gap-3 p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <img
+                            src={user.photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=27272a&color=a1a1aa`}
+                            className="w-9 h-9 rounded-full flex-shrink-0"
+                            alt={user.displayName}
+                        />
+                        <div className="flex-1 min-w-0">
+                            <div className="font-medium text-sm text-zinc-100 truncate">{user.displayName}</div>
+                            <div className="text-xs text-zinc-500 truncate">{user.email}</div>
+                            {user.accessExpiresAt && (
+                                <div className="text-xs text-zinc-600 mt-0.5">
+                                    Expires: {new Date(user.accessExpiresAt).toLocaleDateString()}
+                                </div>
+                            )}
+                        </div>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0 ${STATUS_BADGE[user.status]}`}>
+                            {user.status}
+                        </span>
+                    </div>
+                    {showActions && (
+                        <div className="flex items-center gap-1.5 flex-shrink-0 sm:ml-auto overflow-x-auto pb-1 sm:pb-0">
+                            {user.status === 'pending' && (
+                                <>
+                                    <select
+                                        value={selectedDuration[user._id] === undefined ? 'null' : String(selectedDuration[user._id])}
+                                        onChange={e => setSelectedDuration(prev => ({ ...prev, [user._id]: e.target.value === 'null' ? null : Number(e.target.value) }))}
+                                        className="text-xs bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-zinc-300 focus:outline-none"
+                                    >
+                                        {DURATION_OPTIONS.map(opt => (
+                                            <option key={opt.label} value={opt.days === null ? 'null' : String(opt.days)}>{opt.label}</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={() => approve(user._id)} className="text-xs px-2 py-1 bg-green-600 hover:bg-green-500 rounded text-white transition-colors flex items-center gap-1" title="Approve">
+                                        <UserCheck size={12} /> <span className="hidden sm:inline">Approve</span>
+                                    </button>
+                                    <button onClick={() => reject(user._id)} className="text-xs px-2 py-1 bg-orange-600 hover:bg-orange-500 rounded text-white transition-colors flex items-center gap-1" title="Reject">
+                                        <UserX size={12} /> <span className="hidden sm:inline">Reject</span>
+                                    </button>
+                                    <button onClick={() => block(user._id)} className="text-xs px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-white transition-colors" title="Block">
+                                        <Ban size={12} />
+                                    </button>
+                                </>
+                            )}
+                            {user.status === 'active' && (
+                                <>
+                                    <button onClick={() => revoke(user._id)} className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors flex items-center gap-1" title="Revoke Access">
+                                        <RefreshCw size={12} /> <span className="hidden sm:inline">Revoke</span>
+                                    </button>
+                                    <button onClick={() => block(user._id)} className="text-xs px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-white transition-colors" title="Block">
+                                        <Ban size={12} />
+                                    </button>
+                                </>
+                            )}
+                            {user.status === 'blocked' && (
+                                <button onClick={() => unblock(user._id)} className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors flex items-center gap-1" title="Unblock">
+                                    <RefreshCw size={12} /> <span className="hidden sm:inline">Unblock</span>
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0 ${STATUS_BADGE[user.status]}`}>
-                    {user.status}
-                </span>
+
+                {showActions && (user.status === 'active' || user.status === 'pending') && (
+                    <div className="pt-2 border-t border-zinc-800">
+                        <div className="flex items-center gap-1 mb-2">
+                            <Settings2 size={12} className="text-zinc-500" />
+                            <span className="text-xs font-medium text-zinc-500">Feature Access</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {(Object.keys(PERMISSION_LABELS) as UserPermission[]).map(permission => {
+                                const hasPermission = userPermissions.includes(permission);
+                                return (
+                                    <button
+                                        key={permission}
+                                        onClick={() => togglePermission(user._id, permission, userPermissions)}
+                                        className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+                                            hasPermission
+                                                ? 'bg-blue-500/20 border-blue-500/30 text-blue-400'
+                                                : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                        title={PERMISSION_LABELS[permission].description}
+                                    >
+                                        {PERMISSION_LABELS[permission].label}
+                                        {hasPermission && <CheckCircle size={10} className="inline ml-1" />}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
-            {showActions && (
-                <div className="flex items-center gap-1.5 flex-shrink-0 sm:ml-auto overflow-x-auto pb-1 sm:pb-0">
-                    {user.status === 'pending' && (
-                        <>
-                            <select
-                                value={selectedDuration[user._id] === undefined ? 'null' : String(selectedDuration[user._id])}
-                                onChange={e => setSelectedDuration(prev => ({ ...prev, [user._id]: e.target.value === 'null' ? null : Number(e.target.value) }))}
-                                className="text-xs bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-zinc-300 focus:outline-none"
-                            >
-                                {DURATION_OPTIONS.map(opt => (
-                                    <option key={opt.label} value={opt.days === null ? 'null' : String(opt.days)}>{opt.label}</option>
-                                ))}
-                            </select>
-                            <button onClick={() => approve(user._id)} className="text-xs px-2 py-1 bg-green-600 hover:bg-green-500 rounded text-white transition-colors flex items-center gap-1" title="Approve">
-                                <UserCheck size={12} /> <span className="hidden sm:inline">Approve</span>
-                            </button>
-                            <button onClick={() => reject(user._id)} className="text-xs px-2 py-1 bg-orange-600 hover:bg-orange-500 rounded text-white transition-colors flex items-center gap-1" title="Reject">
-                                <UserX size={12} /> <span className="hidden sm:inline">Reject</span>
-                            </button>
-                            <button onClick={() => block(user._id)} className="text-xs px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-white transition-colors" title="Block">
-                                <Ban size={12} />
-                            </button>
-                        </>
-                    )}
-                    {user.status === 'active' && (
-                        <>
-                            <button onClick={() => revoke(user._id)} className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors flex items-center gap-1" title="Revoke Access">
-                                <RefreshCw size={12} /> <span className="hidden sm:inline">Revoke</span>
-                            </button>
-                            <button onClick={() => block(user._id)} className="text-xs px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-white transition-colors" title="Block">
-                                <Ban size={12} />
-                            </button>
-                        </>
-                    )}
-                    {user.status === 'blocked' && (
-                        <button onClick={() => unblock(user._id)} className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors flex items-center gap-1" title="Unblock">
-                            <RefreshCw size={12} /> <span className="hidden sm:inline">Unblock</span>
-                        </button>
-                    )}
-                </div>
-            )}
-        </div>
-    );
+        );
+    };
 
     return (
         <div className="space-y-6">

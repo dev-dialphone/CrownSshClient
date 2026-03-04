@@ -32,7 +32,10 @@ export interface User {
   status?: 'pending' | 'active' | 'rejected' | 'blocked';
   accessExpiresAt?: string;
   isTotpEnabled?: boolean;
+  permissions?: UserPermission[];
 }
+
+export type UserPermission = 'env' | 'exec' | 'monitor';
 
 export interface ExecutionLog {
   vmId: string;

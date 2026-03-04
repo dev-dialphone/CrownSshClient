@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { User, IUser } from '../models/User.js';
+import { User, IUser, UserPermission } from '../models/User.js';
 import { logEvent } from '../services/auditService.js';
 import { emailService } from '../services/emailService.js';
 import logger from '../utils/logger.js';
@@ -11,10 +11,49 @@ router.use(requireAuth, requireRole('admin'));
 
 router.get('/', asyncHandler(async (_req, res) => {
     const users = await User.find({ role: 'user' })
-        .select('displayName email photo status accessExpiresAt isTempAccess createdAt')
+        .select('displayName email photo status accessExpiresAt isTempAccess createdAt permissions')
         .sort({ createdAt: -1 })
         .lean();
     res.json(users);
+}));
+
+router.patch('/:userId/permissions', asyncHandler(async (req, res) => {
+    const actor = req.user as IUser;
+    const { userId } = req.params;
+    const { permissions } = req.body;
+
+    if (!Array.isArray(permissions)) {
+        res.status(400).json({ error: 'Permissions must be an array' });
+        return;
+    }
+
+    const validPermissions: UserPermission[] = ['env', 'exec', 'monitor'];
+    const filteredPermissions = permissions.filter((p): p is UserPermission => validPermissions.includes(p));
+
+    const user = await User.findById(userId);
+    if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+    }
+
+    if (user.email === 'crownsolution.noc@gmail.com') {
+        res.status(403).json({ error: 'Cannot modify admin account' });
+        return;
+    }
+
+    user.permissions = filteredPermissions;
+    await user.save();
+
+    await logEvent({
+        actorId: actor._id.toString(),
+        actorEmail: actor.email,
+        actorRole: actor.role,
+        action: 'USER_REVOKED',
+        target: user.email,
+        metadata: { permissions: filteredPermissions },
+    });
+
+    res.json({ success: true, user });
 }));
 
 router.patch('/:userId/approve', asyncHandler(async (req, res) => {
