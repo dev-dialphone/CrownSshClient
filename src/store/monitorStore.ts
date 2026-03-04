@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { MonitoringMetrics, EnvironmentSummary, MonitoringResult } from '../types';
 
+export type SortField = 'vmName' | 'vmIp' | 'activeCalls' | 'maxSessions' | 'peakCalls' | 'currentCPS' | 'maxCPS' | 'totalSessions' | 'usagePercent';
+export type SortDirection = 'asc' | 'desc';
+
 interface MonitorState {
   selectedEnvId: string | null;
   environmentName: string | null;
@@ -12,12 +15,16 @@ interface MonitorState {
   autoRefresh: boolean;
   lastUpdated: Date | null;
   expandedVmIds: string[];
+  sortField: SortField;
+  sortDirection: SortDirection;
 
   selectEnvironment: (envId: string) => void;
   fetchMetrics: () => Promise<void>;
   toggleAutoRefresh: () => void;
   toggleVmExpand: (vmId: string) => void;
   clearSelection: () => void;
+  setSort: (field: SortField, direction: SortDirection) => void;
+  getSortedVmMetrics: () => MonitoringMetrics[];
 }
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -33,6 +40,8 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
   autoRefresh: true,
   lastUpdated: null,
   expandedVmIds: [],
+  sortField: 'activeCalls',
+  sortDirection: 'desc',
 
   selectEnvironment: (envId: string) => {
     set({ selectedEnvId: envId, vmMetrics: null, summary: null });
@@ -105,6 +114,34 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
       vmMetrics: null,
       lastUpdated: null,
       expandedVmIds: [],
+    });
+  },
+
+  setSort: (field: SortField, direction: SortDirection) => {
+    set({ sortField: field, sortDirection: direction });
+  },
+
+  getSortedVmMetrics: () => {
+    const { vmMetrics, sortField, sortDirection } = get();
+    if (!vmMetrics) return [];
+
+    const metrics = Object.values(vmMetrics);
+
+    return metrics.sort((a, b) => {
+      const aVal = a[sortField];
+      const bVal = b[sortField];
+
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortDirection === 'asc' 
+          ? aVal.toLowerCase().localeCompare(bVal.toLowerCase()) 
+          : bVal.toLowerCase().localeCompare(aVal.toLowerCase());
+      }
+
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+
+      return 0;
     });
   },
 }));

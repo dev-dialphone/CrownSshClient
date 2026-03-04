@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { validate } from '../middleware/validate.js';
 import { getMonitorMetricsSchema } from '../schemas/monitorSchema.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { requireAuth, requireRole } from '../middleware/requireAuth.js';
+import { requireAuth } from '../middleware/requireAuth.js';
 import { Environment } from '../models/Environment.js';
 import { VMModel } from '../models/VM.js';
 import { monitorService } from '../services/monitorService.js';
@@ -12,7 +12,7 @@ const router = Router();
 
 router.use(requireAuth);
 
-router.post('/', requireRole('admin'), validate(getMonitorMetricsSchema), asyncHandler(async (req, res) => {
+router.post('/', validate(getMonitorMetricsSchema), asyncHandler(async (req, res) => {
   const { environmentId } = req.body;
 
   const env = await Environment.findById(environmentId);

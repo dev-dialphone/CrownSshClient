@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useMonitorStore } from '../store/monitorStore';
+import { useMonitorStore, SortField, SortDirection } from '../store/monitorStore';
 import { useVMStore } from '../store/vmStore';
 import {
   ChevronDown,
@@ -12,7 +12,23 @@ import {
   Phone,
   Gauge,
   TrendingUp,
+  ArrowUpDown,
 } from 'lucide-react';
+
+const SORT_OPTIONS = [
+  { value: 'activeCalls-desc', label: 'Active Calls (High-Low)' },
+  { value: 'activeCalls-asc', label: 'Active Calls (Low-High)' },
+  { value: 'usagePercent-desc', label: 'Usage % (High-Low)' },
+  { value: 'usagePercent-asc', label: 'Usage % (Low-High)' },
+  { value: 'vmName-asc', label: 'VM Name (A-Z)' },
+  { value: 'vmName-desc', label: 'VM Name (Z-A)' },
+  { value: 'vmIp-asc', label: 'IP Address (A-Z)' },
+  { value: 'vmIp-desc', label: 'IP Address (Z-A)' },
+  { value: 'peakCalls-desc', label: 'Peak Calls (High-Low)' },
+  { value: 'currentCPS-desc', label: 'Current CPS (High-Low)' },
+  { value: 'totalSessions-desc', label: 'Total Sessions (High-Low)' },
+  { value: 'maxSessions-desc', label: 'Max Capacity (High-Low)' },
+];
 
 export const MonitoringPanel: React.FC = () => {
   const vmGroups = useVMStore(state => state.vmGroups);
@@ -28,10 +44,14 @@ export const MonitoringPanel: React.FC = () => {
     autoRefresh,
     lastUpdated,
     expandedVmIds,
+    sortField,
+    sortDirection,
     selectEnvironment,
     fetchMetrics,
     toggleAutoRefresh,
     toggleVmExpand,
+    setSort,
+    getSortedVmMetrics,
   } = useMonitorStore();
 
   useEffect(() => {
@@ -79,6 +99,13 @@ export const MonitoringPanel: React.FC = () => {
     if (percent >= 70) return 'bg-yellow-500';
     return 'bg-green-500';
   };
+
+  const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const [field, direction] = e.target.value.split('-') as [SortField, SortDirection];
+    setSort(field, direction);
+  };
+
+  const sortedVmMetrics = getSortedVmMetrics();
 
   return (
     <div className="flex h-full">
@@ -248,11 +275,28 @@ export const MonitoringPanel: React.FC = () => {
             {/* VM Cards */}
             {vmMetrics && (
               <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                  VM Metrics ({Object.keys(vmMetrics).length})
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                    VM Metrics ({Object.keys(vmMetrics).length})
+                  </h3>
+                  
+                  <div className="flex items-center gap-2">
+                    <ArrowUpDown size={14} className="text-zinc-500" />
+                    <select
+                      value={`${sortField}-${sortDirection}`}
+                      onChange={handleSortChange}
+                      className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
+                    >
+                      {SORT_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
-                {Object.values(vmMetrics).map(vm => {
+                {sortedVmMetrics.map(vm => {
                   const isExpanded = expandedVmIds.includes(vm.vmId);
 
                   return (

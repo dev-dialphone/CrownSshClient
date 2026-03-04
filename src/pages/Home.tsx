@@ -26,7 +26,7 @@ interface TabConfig {
 const TABS: TabConfig[] = [
   { id: 'env', label: 'Env & VMs', icon: null, adminOnly: false },
   { id: 'exec', label: 'Exec', icon: <Terminal size={20} />, adminOnly: false },
-  { id: 'monitor', label: 'Monitor', icon: <Activity size={20} />, adminOnly: true },
+  { id: 'monitor', label: 'Monitor', icon: <Activity size={20} />, adminOnly: false },
   { id: 'access', label: 'Access', icon: <Users size={20} />, adminOnly: true },
   { id: 'passwords', label: 'Passwords', icon: <Key size={20} />, adminOnly: true },
   { id: 'logs', label: 'Logs', icon: <ScrollText size={20} />, adminOnly: true },
@@ -58,16 +58,16 @@ export default function Home() {
           <GlobalSearch />
         </div>
 
-        {/* Desktop Admin Tabs */}
+        {/* Desktop Tabs */}
         <div className="hidden md:flex items-center gap-2 ml-4 w-auto justify-end">
+          <button
+            onClick={() => setActiveTab('monitor')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'monitor' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
+          >
+            <Activity size={16} /> Monitor
+          </button>
           {isAdmin && (
             <>
-              <button
-                onClick={() => setActiveTab('monitor')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'monitor' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
-              >
-                <Activity size={16} /> Monitor
-              </button>
               <button
                 onClick={() => setActiveTab('access')}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'access' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
@@ -113,9 +113,9 @@ export default function Home() {
           <div className="flex-1 flex flex-col h-full bg-black overflow-hidden p-4">
             <GlobalSearch />
           </div>
-        ) : isAdmin && ['monitor', 'access', 'passwords', 'logs', 'email'].includes(activeTab) ? (
-          /* Admin Panels (Desktop & Mobile) */
-          <div className="flex-1 flex flex-col h-full bg-black overflow-hidden relative">
+        ) : activeTab === 'monitor' || (isAdmin && ['access', 'passwords', 'logs', 'email'].includes(activeTab)) ? (
+          /* Full-width Panels (Monitor for all users + Admin Panels) */
+          <div className="flex-1 flex flex-col h-full bg-black relative">
             {activeTab !== 'monitor' && (
               <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
                 <button
@@ -126,12 +126,12 @@ export default function Home() {
                 </button>
               </div>
             )}
-            <div className="flex-1 overflow-hidden w-full">
+            <div className="flex-1 w-full h-full">
               {activeTab === 'monitor' && <MonitoringPanel />}
-              {activeTab === 'access' && <div className="overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><AccessControlPanel /></div>}
-              {activeTab === 'passwords' && <div className="overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><VMPasswordManager /></div>}
-              {activeTab === 'logs' && <div className="overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><AuditLogView /></div>}
-              {activeTab === 'email' && <div className="overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><EmailSettings /></div>}
+              {activeTab === 'access' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><AccessControlPanel /></div>}
+              {activeTab === 'passwords' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><VMPasswordManager /></div>}
+              {activeTab === 'logs' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><AuditLogView /></div>}
+              {activeTab === 'email' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><EmailSettings /></div>}
             </div>
           </div>
         ) : (
