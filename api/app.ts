@@ -35,6 +35,7 @@ import accessRequestsRoutes from './routes/accessRequests.js'
 import auditLogsRoutes from './routes/auditLogs.js'
 import pushRoutes from './routes/push.js'
 import emailRoutes from './routes/email.js'
+import monitorRoutes from './routes/monitor.js'
 
 const app: express.Application = express()
 
@@ -264,6 +265,7 @@ app.use('/api/access-requests', accessRequestsRoutes)
 app.use('/api/audit-logs', auditLogsRoutes)
 app.use('/api/push', pushRoutes)
 app.use('/api/email', emailRoutes)
+app.use('/api/monitor', monitorRoutes)
 
 /**
  * health

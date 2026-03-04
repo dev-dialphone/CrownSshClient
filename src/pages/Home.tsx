@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { EnvironmentVMTree } from "@/components/EnvironmentVMTree";
 import { CommandExecutor } from "@/components/CommandExecutor";
 import { GlobalSearch } from "@/components/GlobalSearch";
+import { MonitoringPanel } from "@/components/MonitoringPanel";
 import AccessControlPanel from "@/components/AccessControlPanel";
 import AuditLogView from "@/components/AuditLogView";
 import EmailSettings from "@/components/EmailSettings";
@@ -10,9 +11,9 @@ import { useVMStore } from "../store/vmStore";
 import { useEnvStore } from "../store/envStore";
 import { useAuthStore } from "../store/authStore";
 import { usePushNotifications } from "../hooks/usePushNotifications";
-import { Terminal, Users, ScrollText, Mail, Search, Key } from "lucide-react";
+import { Terminal, Users, ScrollText, Mail, Search, Key, Activity } from "lucide-react";
 
-type TabId = 'env' | 'exec' | 'access' | 'logs' | 'email' | 'passwords' | 'search';
+type TabId = 'env' | 'exec' | 'monitor' | 'access' | 'logs' | 'email' | 'passwords' | 'search';
 
 interface TabConfig {
   id: TabId;
@@ -25,6 +26,7 @@ interface TabConfig {
 const TABS: TabConfig[] = [
   { id: 'env', label: 'Env & VMs', icon: null, adminOnly: false },
   { id: 'exec', label: 'Exec', icon: <Terminal size={20} />, adminOnly: false },
+  { id: 'monitor', label: 'Monitor', icon: <Activity size={20} />, adminOnly: true },
   { id: 'access', label: 'Access', icon: <Users size={20} />, adminOnly: true },
   { id: 'passwords', label: 'Passwords', icon: <Key size={20} />, adminOnly: true },
   { id: 'logs', label: 'Logs', icon: <ScrollText size={20} />, adminOnly: true },
@@ -60,6 +62,12 @@ export default function Home() {
         <div className="hidden md:flex items-center gap-2 ml-4 w-auto justify-end">
           {isAdmin && (
             <>
+              <button
+                onClick={() => setActiveTab('monitor')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'monitor' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
+              >
+                <Activity size={16} /> Monitor
+              </button>
               <button
                 onClick={() => setActiveTab('access')}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'access' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
@@ -105,22 +113,25 @@ export default function Home() {
           <div className="flex-1 flex flex-col h-full bg-black overflow-hidden p-4">
             <GlobalSearch />
           </div>
-        ) : isAdmin && ['access', 'passwords', 'logs', 'email'].includes(activeTab) ? (
+        ) : isAdmin && ['monitor', 'access', 'passwords', 'logs', 'email'].includes(activeTab) ? (
           /* Admin Panels (Desktop & Mobile) */
           <div className="flex-1 flex flex-col h-full bg-black overflow-hidden relative">
-            <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
-              <button
-                onClick={() => setActiveTab('env')}
-                className="px-3 py-1.5 md:px-4 md:py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm transition-colors"
-              >
-                ← Back
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8">
-              {activeTab === 'access' && <AccessControlPanel />}
-              {activeTab === 'passwords' && <VMPasswordManager />}
-              {activeTab === 'logs' && <AuditLogView />}
-              {activeTab === 'email' && <EmailSettings />}
+            {activeTab !== 'monitor' && (
+              <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
+                <button
+                  onClick={() => setActiveTab('env')}
+                  className="px-3 py-1.5 md:px-4 md:py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm transition-colors"
+                >
+                  ← Back
+                </button>
+              </div>
+            )}
+            <div className="flex-1 overflow-hidden w-full">
+              {activeTab === 'monitor' && <MonitoringPanel />}
+              {activeTab === 'access' && <div className="overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><AccessControlPanel /></div>}
+              {activeTab === 'passwords' && <div className="overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><VMPasswordManager /></div>}
+              {activeTab === 'logs' && <div className="overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><AuditLogView /></div>}
+              {activeTab === 'email' && <div className="overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><EmailSettings /></div>}
             </div>
           </div>
         ) : (

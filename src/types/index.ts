@@ -45,3 +45,39 @@ export interface ExecutionStatus {
   vmId: string;
   status: 'pending' | 'running' | 'success' | 'error';
 }
+
+export interface MonitoringMetrics {
+  vmId: string;
+  vmName: string;
+  vmIp: string;
+  activeCalls: number;
+  maxSessions: number;
+  peakCalls: number;
+  currentCPS: number;
+  maxCPS: number;
+  totalSessions: number;
+  usagePercent: number;
+  status: 'healthy' | 'warning' | 'critical' | 'error';
+  error?: string;
+  timestamp: string;
+}
+
+export interface EnvironmentSummary {
+  totalActive: number;
+  totalCapacity: number;
+  totalCPS: number;
+  maxCPS: number;
+  usagePercent: number;
+  healthyVMs: number;
+  errorVMs: number;
+  totalVMs: number;
+}
+
+export interface MonitoringResult {
+  configured: boolean;
+  message?: string;
+  environmentName?: string;
+  summary: EnvironmentSummary;
+  vms: Record<string, MonitoringMetrics>;
+  lastUpdated: string;
+}
