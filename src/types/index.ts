@@ -7,6 +7,30 @@ export interface VM {
   port: number;
   environmentId?: string;
   isPinned?: boolean;
+  tags?: VMTag[];
+}
+
+export interface VMTag {
+  text: string;
+  addedBy: string;
+  addedByEmail: string;
+  addedAt: string;
+}
+
+export interface TagRequest {
+  _id: string;
+  vmId: string;
+  vmName: string;
+  vmIp: string;
+  requestedBy: string;
+  requestedByEmail: string;
+  tagText: string;
+  requestType: 'add' | 'remove';
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy?: string;
+  reviewedByEmail?: string;
+  reviewedAt?: string;
+  createdAt: string;
 }
 
 export interface VMGroup {

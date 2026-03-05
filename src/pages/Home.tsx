@@ -7,14 +7,15 @@ import AccessControlPanel from "@/components/AccessControlPanel";
 import AuditLogView from "@/components/AuditLogView";
 import EmailSettings from "@/components/EmailSettings";
 import VMPasswordManager from "@/components/VMPasswordManager";
+import TagRequestsPanel from "@/components/TagRequestsPanel";
 import { useVMStore } from "../store/vmStore";
 import { useEnvStore } from "../store/envStore";
 import { useAuthStore } from "../store/authStore";
 import { usePushNotifications } from "../hooks/usePushNotifications";
-import { Terminal, Users, ScrollText, Mail, Search, Key, Activity, Layers } from "lucide-react";
+import { Terminal, Users, ScrollText, Mail, Search, Key, Activity, Layers, Tag } from "lucide-react";
 import { UserPermission } from "../types";
 
-type TabId = 'env' | 'exec' | 'monitor' | 'access' | 'logs' | 'email' | 'passwords' | 'search';
+type TabId = 'env' | 'exec' | 'monitor' | 'access' | 'logs' | 'email' | 'passwords' | 'tags' | 'search';
 
 interface TabConfig {
   id: TabId;
@@ -31,6 +32,7 @@ const TABS: TabConfig[] = [
   { id: 'monitor', label: 'Monitor', icon: <Activity size={20} />, permission: 'monitor', adminOnly: false },
   { id: 'access', label: 'Access', icon: <Users size={20} />, adminOnly: true },
   { id: 'passwords', label: 'Passwords', icon: <Key size={20} />, adminOnly: true },
+  { id: 'tags', label: 'Tags', icon: <Tag size={20} />, adminOnly: true },
   { id: 'logs', label: 'Logs', icon: <ScrollText size={20} />, adminOnly: true },
   { id: 'email', label: 'Email', icon: <Mail size={20} />, adminOnly: true },
   { id: 'search', label: 'Search', icon: <Search size={20} />, adminOnly: false, mobileOnly: true },
@@ -99,6 +101,12 @@ export default function Home() {
                 <Key size={16} /> Passwords
               </button>
               <button
+                onClick={() => setActiveTab('tags')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'tags' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
+              >
+                <Tag size={16} /> Tags
+              </button>
+              <button
                 onClick={() => setActiveTab('logs')}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${activeTab === 'logs' ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
               >
@@ -131,7 +139,7 @@ export default function Home() {
           <div className="flex-1 flex flex-col h-full bg-black overflow-hidden p-4">
             <GlobalSearch />
           </div>
-        ) : activeTab === 'monitor' || (isAdmin && ['access', 'passwords', 'logs', 'email'].includes(activeTab)) ? (
+        ) : activeTab === 'monitor' || (isAdmin && ['access', 'passwords', 'tags', 'logs', 'email'].includes(activeTab)) ? (
           /* Full-width Panels (Monitor for all users + Admin Panels) */
           <div className="flex-1 flex flex-col h-full bg-black relative">
             {activeTab !== 'monitor' && (
@@ -148,6 +156,7 @@ export default function Home() {
               {activeTab === 'monitor' && <MonitoringPanel />}
               {activeTab === 'access' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><AccessControlPanel /></div>}
               {activeTab === 'passwords' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><VMPasswordManager /></div>}
+              {activeTab === 'tags' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><TagRequestsPanel /></div>}
               {activeTab === 'logs' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><AuditLogView /></div>}
               {activeTab === 'email' && <div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto w-full pt-12 md:pt-8"><EmailSettings /></div>}
             </div>

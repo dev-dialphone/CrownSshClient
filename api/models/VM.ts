@@ -1,14 +1,22 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import { encrypt, decrypt } from '../utils/encryption.js';
 
+export interface VMTag {
+  text: string;
+  addedBy: string;
+  addedByEmail: string;
+  addedAt: Date;
+}
+
 export interface IVM extends Document {
   name: string;
   ip: string;
   username: string;
   password?: string;
   port: number;
-  environmentId?: string; // We'll store the Environment ID as a string or ObjectId
+  environmentId?: string;
   isPinned?: boolean;
+  tags: VMTag[];
 }
 
 const VMSchema: Schema = new Schema({
@@ -21,8 +29,14 @@ const VMSchema: Schema = new Schema({
     set: (v: string | undefined) => (v ? encrypt(v) : v),
   },
   port: { type: Number, default: 22 },
-  environmentId: { type: String, index: true }, // Indexed for performance
+  environmentId: { type: String, index: true },
   isPinned: { type: Boolean, default: false },
+  tags: [{
+    text: { type: String, required: true },
+    addedBy: { type: String, required: true },
+    addedByEmail: { type: String, required: true },
+    addedAt: { type: Date, default: Date.now }
+  }],
 }, {
   toJSON: { getters: true },
   toObject: { getters: true }

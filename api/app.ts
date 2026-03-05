@@ -36,6 +36,7 @@ import auditLogsRoutes from './routes/auditLogs.js'
 import pushRoutes from './routes/push.js'
 import emailRoutes from './routes/email.js'
 import monitorRoutes from './routes/monitor.js'
+import tagsRoutes from './routes/tags.js'
 
 const app: express.Application = express()
 
@@ -266,6 +267,7 @@ app.use('/api/audit-logs', auditLogsRoutes)
 app.use('/api/push', pushRoutes)
 app.use('/api/email', emailRoutes)
 app.use('/api/monitor', monitorRoutes)
+app.use('/api/tags', tagsRoutes)
 
 /**
  * health

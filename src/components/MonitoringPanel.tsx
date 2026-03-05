@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useMonitorStore, SortField, SortDirection } from '../store/monitorStore';
 import { useVMStore } from '../store/vmStore';
+import { useAuthStore } from '../store/authStore';
+import { VMTag, TagRequest } from '../types';
 import {
   ChevronDown,
   ChevronRight,
@@ -13,7 +15,14 @@ import {
   Gauge,
   TrendingUp,
   ArrowUpDown,
+  Tag,
+  Plus,
+  X,
+  Clock,
+  Edit3,
 } from 'lucide-react';
+
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const SORT_OPTIONS = [
   { value: 'activeCalls-desc', label: 'Active Calls (High-Low)' },
@@ -30,8 +39,21 @@ const SORT_OPTIONS = [
   { value: 'maxSessions-desc', label: 'Max Capacity (High-Low)' },
 ];
 
+interface VMTagsData {
+  tags: VMTag[];
+  vmName: string;
+  vmIp: string;
+}
+
+interface MyTagData {
+  myTag: VMTag | null;
+  hasPendingRequest: boolean;
+  pendingRequest: TagRequest | null;
+}
+
 export const MonitoringPanel: React.FC = () => {
   const vmGroups = useVMStore(state => state.vmGroups);
+  const { user, isAdmin, hasPermission } = useAuthStore();
 
   const {
     selectedEnvId,
@@ -54,6 +76,15 @@ export const MonitoringPanel: React.FC = () => {
     getSortedVmMetrics,
   } = useMonitorStore();
 
+  const [vmTags, setVmTags] = useState<Record<string, VMTagsData>>({});
+  const [myTags, setMyTags] = useState<Record<string, MyTagData>>({});
+  const [tagModalVm, setTagModalVm] = useState<{ vmId: string; vmName: string } | null>(null);
+  const [tagInput, setTagInput] = useState('');
+  const [tagSubmitting, setTagSubmitting] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
+
+  const canTag = hasPermission('exec');
+
   useEffect(() => {
     if (!autoRefresh || !selectedEnvId) return;
 
@@ -63,6 +94,126 @@ export const MonitoringPanel: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [autoRefresh, selectedEnvId, fetchMetrics]);
+
+  useEffect(() => {
+    if (selectedEnvId && vmMetrics) {
+      const vmIds = Object.keys(vmMetrics);
+      vmIds.forEach(vmId => {
+        fetchVmTags(vmId);
+        if (canTag && user) {
+          fetchMyTag(vmId);
+        }
+      });
+    }
+  }, [selectedEnvId, vmMetrics, canTag, user]);
+
+  const fetchVmTags = async (vmId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/tags/vm/${vmId}`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setVmTags(prev => ({ ...prev, [vmId]: data }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch VM tags:', err);
+    }
+  };
+
+  const fetchMyTag = async (vmId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/tags/vm/${vmId}/my-tag`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setMyTags(prev => ({ ...prev, [vmId]: data }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch my tag:', err);
+    }
+  };
+
+  const handleAddTag = async () => {
+    if (!tagModalVm || !tagInput.trim()) return;
+
+    setTagSubmitting(true);
+    setTagError(null);
+
+    try {
+      const res = await fetch(`${API_URL}/api/tags/vm/${tagModalVm.vmId}/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ tagText: tagInput.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.hasExistingTag) {
+          setTagError('You have already tagged this VM. Please request a tag change instead.');
+        } else {
+          setTagError(data.error || 'Failed to add tag');
+        }
+        return;
+      }
+
+      setTagModalVm(null);
+      setTagInput('');
+      fetchVmTags(tagModalVm.vmId);
+      fetchMyTag(tagModalVm.vmId);
+    } catch (err) {
+      setTagError('Failed to add tag');
+    } finally {
+      setTagSubmitting(false);
+    }
+  };
+
+  const handleRequestTagChange = async (requestType: 'add' | 'remove') => {
+    if (!tagModalVm || !tagInput.trim()) return;
+
+    setTagSubmitting(true);
+    setTagError(null);
+
+    try {
+      const res = await fetch(`${API_URL}/api/tags/vm/${tagModalVm.vmId}/request-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ tagText: tagInput.trim(), requestType }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setTagError(data.error || 'Failed to request tag change');
+        return;
+      }
+
+      setTagModalVm(null);
+      setTagInput('');
+      fetchMyTag(tagModalVm.vmId);
+    } catch (err) {
+      setTagError('Failed to request tag change');
+    } finally {
+      setTagSubmitting(false);
+    }
+  };
+
+  const handleRemoveTag = async (vmId: string, tagIndex: number) => {
+    if (!isAdmin) return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/tags/vm/${vmId}/tag/${tagIndex}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        fetchVmTags(vmId);
+      }
+    } catch (err) {
+      console.error('Failed to remove tag:', err);
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -109,7 +260,6 @@ export const MonitoringPanel: React.FC = () => {
 
   return (
     <div className="flex h-full">
-      {/* Left Panel - Environment List */}
       <div className="w-64 border-r border-zinc-800 bg-zinc-950 flex flex-col">
         <div className="p-3 border-b border-zinc-800">
           <h2 className="text-sm font-semibold flex items-center gap-2 uppercase tracking-wider text-zinc-400">
@@ -175,7 +325,6 @@ export const MonitoringPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Right Panel - VM Metrics */}
       <div className="flex-1 overflow-y-auto bg-zinc-950 p-4">
         {!selectedEnvId ? (
           <div className="flex flex-col items-center justify-center h-full text-zinc-500">
@@ -194,7 +343,6 @@ export const MonitoringPanel: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Environment Header */}
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-zinc-100">{environmentName} Environment</h2>
@@ -206,7 +354,6 @@ export const MonitoringPanel: React.FC = () => {
               </div>
             </div>
 
-            {/* Summary Card */}
             {summary && (
               <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
                 <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
@@ -272,7 +419,6 @@ export const MonitoringPanel: React.FC = () => {
               </div>
             )}
 
-            {/* VM Cards */}
             {vmMetrics && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -298,13 +444,14 @@ export const MonitoringPanel: React.FC = () => {
 
                 {sortedVmMetrics.map(vm => {
                   const isExpanded = expandedVmIds.includes(vm.vmId);
+                  const vmTagData = vmTags[vm.vmId];
+                  const myTagData = myTags[vm.vmId];
 
                   return (
                     <div
                       key={vm.vmId}
                       className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden"
                     >
-                      {/* VM Header - Always Visible */}
                       <button
                         onClick={() => toggleVmExpand(vm.vmId)}
                         className="w-full p-3 flex items-center justify-between text-left hover:bg-zinc-800/50 transition-colors"
@@ -341,7 +488,6 @@ export const MonitoringPanel: React.FC = () => {
                         )}
                       </button>
 
-                      {/* Progress Bar */}
                       {vm.status !== 'error' && (
                         <div className="px-3 pb-2">
                           <div className="w-full bg-zinc-800 rounded-full h-1.5">
@@ -353,31 +499,79 @@ export const MonitoringPanel: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Expanded Details */}
-                      {isExpanded && vm.status !== 'error' && (
-                        <div className="px-3 pb-3 pt-1 border-t border-zinc-800/50">
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                            <div>
-                              <span className="text-zinc-500">Peak Calls</span>
-                              <p className="text-zinc-200 font-medium">{vm.peakCalls.toLocaleString()}</p>
+                      {isExpanded && (
+                        <div className="px-3 pb-3 pt-1 border-t border-zinc-800/50 space-y-3">
+                          {vm.status !== 'error' && (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                              <div>
+                                <span className="text-zinc-500">Peak Calls</span>
+                                <p className="text-zinc-200 font-medium">{vm.peakCalls.toLocaleString()}</p>
+                              </div>
+                              <div>
+                                <span className="text-zinc-500">Total Sessions</span>
+                                <p className="text-zinc-200 font-medium">{vm.totalSessions.toLocaleString()}</p>
+                              </div>
+                              <div>
+                                <span className="text-zinc-500">Current CPS</span>
+                                <p className="text-zinc-200 font-medium">{vm.currentCPS} / {vm.maxCPS}</p>
+                              </div>
+                              <div>
+                                <span className="text-zinc-500">Status</span>
+                                <p className={`font-medium capitalize flex items-center gap-1 ${getStatusColor(vm.status)}`}>
+                                  {vm.status === 'healthy' && <CheckCircle size={10} />}
+                                  {vm.status === 'warning' && <AlertTriangle size={10} />}
+                                  {vm.status === 'critical' && <XCircle size={10} />}
+                                  {vm.status}
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <span className="text-zinc-500">Total Sessions</span>
-                              <p className="text-zinc-200 font-medium">{vm.totalSessions.toLocaleString()}</p>
+                          )}
+
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-zinc-500 text-xs font-medium flex items-center gap-1">
+                                <Tag size={12} /> Tags
+                              </span>
+                              {canTag && (
+                                <button
+                                  onClick={() => setTagModalVm({ vmId: vm.vmId, vmName: vm.vmName })}
+                                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                                >
+                                  {myTagData?.myTag ? <Edit3 size={10} /> : <Plus size={10} />}
+                                  {myTagData?.myTag ? 'Request Change' : 'Add Tag'}
+                                </button>
+                              )}
                             </div>
-                            <div>
-                              <span className="text-zinc-500">Current CPS</span>
-                              <p className="text-zinc-200 font-medium">{vm.currentCPS} / {vm.maxCPS}</p>
-                            </div>
-                            <div>
-                              <span className="text-zinc-500">Status</span>
-                              <p className={`font-medium capitalize flex items-center gap-1 ${getStatusColor(vm.status)}`}>
-                                {vm.status === 'healthy' && <CheckCircle size={10} />}
-                                {vm.status === 'warning' && <AlertTriangle size={10} />}
-                                {vm.status === 'critical' && <XCircle size={10} />}
-                                {vm.status}
+
+                            {vmTagData?.tags && vmTagData.tags.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {vmTagData.tags.map((tag, index) => (
+                                  <span
+                                    key={index}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300"
+                                  >
+                                    <Tag size={10} className="text-zinc-500" />
+                                    {tag.text}
+                                    {isAdmin && (
+                                      <button
+                                        onClick={() => handleRemoveTag(vm.vmId, index)}
+                                        className="ml-1 text-zinc-500 hover:text-red-400"
+                                      >
+                                        <X size={10} />
+                                      </button>
+                                    )}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-zinc-600">No tags</p>
+                            )}
+
+                            {myTagData?.hasPendingRequest && (
+                              <p className="text-xs text-yellow-500 mt-2 flex items-center gap-1">
+                                <Clock size={10} /> You have a pending tag change request
                               </p>
-                            </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -389,6 +583,80 @@ export const MonitoringPanel: React.FC = () => {
           </div>
         )}
       </div>
+
+      {tagModalVm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-zinc-100">
+                {myTags[tagModalVm.vmId]?.myTag ? 'Request Tag Change' : 'Add Tag'}
+              </h3>
+              <button onClick={() => { setTagModalVm(null); setTagInput(''); setTagError(null); }}>
+                <X size={16} className="text-zinc-500 hover:text-zinc-300" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400 mb-3">
+              VM: {tagModalVm.vmName}
+            </p>
+
+            {myTags[tagModalVm.vmId]?.myTag && (
+              <div className="mb-3 p-2 bg-zinc-800 rounded text-xs">
+                <span className="text-zinc-500">Your current tag:</span>
+                <span className="ml-2 text-zinc-300">{myTags[tagModalVm.vmId].myTag?.text}</span>
+              </div>
+            )}
+
+            <input
+              type="text"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              placeholder="Enter tag text..."
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+              maxLength={50}
+            />
+
+            {tagError && (
+              <p className="text-xs text-red-400 mt-2">{tagError}</p>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              {myTags[tagModalVm.vmId]?.myTag ? (
+                <>
+                  <button
+                    onClick={() => handleRequestTagChange('remove')}
+                    disabled={tagSubmitting || !tagInput.trim()}
+                    className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-sm font-medium transition-colors"
+                  >
+                    Request Remove
+                  </button>
+                  <button
+                    onClick={() => handleRequestTagChange('add')}
+                    disabled={tagSubmitting || !tagInput.trim()}
+                    className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-sm font-medium transition-colors"
+                  >
+                    Request Change
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleAddTag}
+                  disabled={tagSubmitting || !tagInput.trim()}
+                  className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-sm font-medium transition-colors"
+                >
+                  Add Tag
+                </button>
+              )}
+              <button
+                onClick={() => { setTagModalVm(null); setTagInput(''); setTagError(null); }}
+                className="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 rounded text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
