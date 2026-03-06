@@ -78,6 +78,7 @@ export const GlobalSearch: React.FC = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search VMs by name, IP, username..."
+          aria-label="Search virtual machines"
           className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-10 md:pl-12 pr-10 md:pr-12 py-3 md:py-3.5 text-sm md:text-base text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-zinc-600"
           autoFocus
         />
@@ -85,6 +86,7 @@ export const GlobalSearch: React.FC = () => {
           <button 
             onClick={() => setQuery('')}
             className="absolute right-3 md:right-4 top-1/2 transform -translate-y-1/2 text-zinc-500 hover:text-white p-1"
+            aria-label="Clear search"
           >
             <X size={18} />
           </button>
@@ -94,7 +96,7 @@ export const GlobalSearch: React.FC = () => {
       {isOpen && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl z-50 max-h-[60vh] overflow-y-auto">
           {loading ? (
-            <div className="p-4 text-center text-zinc-500 text-sm">Searching...</div>
+            <div className="p-4 text-center text-zinc-500 text-sm" role="status" aria-live="polite">Searching...</div>
           ) : results.length > 0 ? (
             <ul>
               {results.map((vm) => (
@@ -112,7 +114,7 @@ export const GlobalSearch: React.FC = () => {
               ))}
             </ul>
           ) : (
-            <div className="p-4 text-center text-zinc-500 text-sm">No VMs found matching "{query}"</div>
+            <div className="p-4 text-center text-zinc-500 text-sm" role="status" aria-live="polite">No VMs found matching "{query}"</div>
           )}
         </div>
       )}
