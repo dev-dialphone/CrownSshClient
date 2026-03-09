@@ -1,41 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Key } from 'lucide-react';
 import { useVMStore } from '../store/vmStore';
-import { 
-  Key, 
-  Play, 
-  RefreshCw, 
-  Eye, 
-  EyeOff, 
-  Download, 
-  AlertTriangle, 
-  CheckCircle, 
-  XCircle,
-  Copy,
-  Loader2,
-  Layers,
-  RotateCcw
-} from 'lucide-react';
-
-interface RateLimitInfo {
-  vmRemaining: number;
-  adminRemaining: number;
-  isAdmin?: boolean;
-}
-
-interface PasswordHistoryEntry {
-  id: string;
-  vmId: string;
-  vmName: string;
-  vmIp: string;
-  vmUsername: string;
-  newPassword: string;
-  oldPassword?: string;
-  operationType: 'manual' | 'auto';
-  changedBy: string;
-  success: boolean;
-  errorMessage?: string;
-  createdAt: string;
-}
+import { usePasswordHistory, useRateLimit, useVmPasswordHistory } from '../hooks/password';
+import {
+  BulkPasswordUpdate,
+  EnvironmentBulkUpdate,
+  SingleVMPasswordManager,
+  PasswordHistory,
+} from './PasswordManager';
 
 interface BulkResult {
   vmId: string;
@@ -53,456 +25,185 @@ export default function VMPasswordManager() {
   }, [vmGroups]);
   
   const [selectedVmId, setSelectedVmId] = useState<string>('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [connectionMessage, setConnectionMessage] = useState('');
   
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [previewPassword, setPreviewPassword] = useState<string | null>(null);
-  const [updatingPassword, setUpdatingPassword] = useState(false);
-  const [manualRateLimit, setManualRateLimit] = useState<RateLimitInfo | null>(null);
-  const [autoRateLimit, setAutoRateLimit] = useState<RateLimitInfo | null>(null);
-  
-  const [autoResetLength, setAutoResetLength] = useState(16);
-  const [includeSpecialChars, setIncludeSpecialChars] = useState(true);
-  const [autoResetting, setAutoResetting] = useState(false);
-  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
-  
-  const [history, setHistory] = useState<PasswordHistoryEntry[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-
-  const [bulkPassword, setBulkPassword] = useState('');
-  const [bulkPreviewPassword, setBulkPreviewPassword] = useState<string | null>(null);
-  const [bulkUpdating, setBulkUpdating] = useState(false);
-  const [bulkResults, setBulkResults] = useState<BulkResult[] | null>(null);
-  const [bulkTestConnection, setBulkTestConnection] = useState(true);
-
-  const [envBulkEnvId, setEnvBulkEnvId] = useState<string>('');
-  const [envBulkPassword, setEnvBulkPassword] = useState('');
-  const [envBulkPreviewPassword, setEnvBulkPreviewPassword] = useState<string | null>(null);
-  const [envBulkUpdating, setEnvBulkUpdating] = useState(false);
-  const [envBulkResults, setEnvBulkResults] = useState<BulkResult[] | null>(null);
-  const [envBulkTestConnection, setEnvBulkTestConnection] = useState(true);
-
-  const [vmHistory, setVmHistory] = useState<PasswordHistoryEntry[]>([]);
-  const [vmHistoryLoading, setVmHistoryLoading] = useState(false);
-  const [restoringPassword, setRestoringPassword] = useState(false);
-  const [showVmHistory, setShowVmHistory] = useState(false);
-
-  const [syncPassword, setSyncPassword] = useState('');
-  const [syncing, setSyncing] = useState(false);
+  const { history, loading: historyLoading, loadHistory, exportHistory } = usePasswordHistory();
+  const { manualRateLimit, autoRateLimit, loadRateLimitInfo } = useRateLimit();
+  const { vmHistory, loading: vmHistoryLoading, loadVmHistory } = useVmPasswordHistory();
   
   useEffect(() => {
     fetchVMGroups();
     loadHistory();
-  }, [fetchVMGroups]);
+  }, [fetchVMGroups, loadHistory]);
   
   useEffect(() => {
     if (selectedVmId) {
-      loadRateLimitInfo();
-      loadVmHistory();
+      loadRateLimitInfo(selectedVmId);
+      loadVmHistory(selectedVmId);
     }
-  }, [selectedVmId]);
+  }, [selectedVmId, loadRateLimitInfo, loadVmHistory]);
   
   const selectedVM = allVMs.find(v => v.id === selectedVmId);
-  
-  const loadRateLimitInfo = async () => {
-    try {
-      const res = await fetch(`/api/vms/${selectedVmId}/password/rate-limit`, {
-        credentials: 'include'
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setManualRateLimit(data.manual);
-        setAutoRateLimit(data.auto);
-      }
-    } catch (error) {
-      console.error('Failed to load rate limit info:', error);
-    }
-  };
-  
-  const loadHistory = async (offset = 0) => {
-    setHistoryLoading(true);
-    try {
-      const res = await fetch(`/api/vms/passwords/history?limit=50&offset=${offset}`, {
-        credentials: 'include'
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setHistory(data.data);
-      }
-    } catch {
-      console.error('Failed to load history');
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
 
-  const loadVmHistory = async () => {
-    if (!selectedVmId) return;
-    setVmHistoryLoading(true);
-    try {
-      const res = await fetch(`/api/vms/${selectedVmId}/password/history`, {
-        credentials: 'include'
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setVmHistory(data);
-      }
-    } catch {
-      console.error('Failed to load VM history');
-    } finally {
-      setVmHistoryLoading(false);
-    }
-  };
-
-  const handleRestorePassword = async (historyId: string, oldPassword: string) => {
-    if (!confirm(`This will restore the password to: "${oldPassword}". Continue?`)) {
-      return;
-    }
-
-    setRestoringPassword(true);
-    try {
-      const res = await fetch(`/api/vms/${selectedVmId}/password/restore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ historyId })
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        alert(`Password restored successfully to: ${data.restoredPassword}`);
-        fetchVMGroups(true);
-        loadVmHistory();
-        loadHistory();
-        loadRateLimitInfo();
-      } else {
-        alert(data.message || data.error);
-      }
-    } catch {
-      alert('Failed to restore password');
-    } finally {
-      setRestoringPassword(false);
-    }
-  };
-  
-  const testConnection = async () => {
-    if (!selectedVmId) return;
+  const handleBulkUpdate = async (password: string, testConnection: boolean): Promise<{ results: BulkResult[]; successCount: number; failCount: number }> => {
+    const res = await fetch('/api/vms/passwords/bulk-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ 
+        newPassword: password, 
+        testConnection,
+      })
+    });
     
-    setTestingConnection(true);
-    setConnectionStatus('idle');
+    const data = await res.json();
     
-    try {
-      const res = await fetch(`/api/vms/${selectedVmId}/password/test`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-      const data = await res.json();
-      
-      setConnectionStatus(data.success ? 'success' : 'error');
-      setConnectionMessage(data.message);
-    } catch {
-      setConnectionStatus('error');
-      setConnectionMessage('Failed to test connection');
-    } finally {
-      setTestingConnection(false);
-    }
-  };
-
-  const handleSyncPassword = async () => {
-    if (!syncPassword) {
-      alert('Please enter the actual VM password');
-      return;
-    }
-
-    if (!confirm('This will test the password and update the database if it works. Continue?')) {
-      return;
-    }
-
-    setSyncing(true);
-    try {
-      const res = await fetch(`/api/vms/${selectedVmId}/password/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ actualPassword: syncPassword })
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        alert('Database synced successfully! The password now matches the VM.');
-        setSyncPassword('');
-        fetchVMGroups(true);
-        loadVmHistory();
-        loadHistory();
-      } else {
-        alert(data.message || data.error);
-      }
-    } catch {
-      alert('Failed to sync password');
-    } finally {
-      setSyncing(false);
-    }
-  };
-  
-  const generateRandomPassword = (length: number = 16, special: boolean = true): string => {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const safeSpecialChars = '@#%^*_+=[]{}:.<>?~';
-    const allChars = special ? chars + safeSpecialChars : chars;
-    
-    let password = '';
-    const array = new Uint32Array(length);
-    window.crypto.getRandomValues(array);
-    
-    for (let i = 0; i < length; i++) {
-      password += allChars[array[i] % allChars.length];
+    if (!res.ok) {
+      throw new Error(data.message || data.error);
     }
     
-    return password;
+    fetchVMGroups(true);
+    loadHistory();
+    
+    return {
+      results: data.results,
+      successCount: data.successCount,
+      failCount: data.failCount,
+    };
   };
-  
-  const handlePreviewPassword = () => {
-    const generated = generateRandomPassword(autoResetLength, includeSpecialChars);
-    setPreviewPassword(generated);
-    setNewPassword(generated);
-    setConfirmPassword(generated);
-  };
-  
-  const handlePreviewBulkPassword = () => {
-    const generated = generateRandomPassword(16, true);
-    setBulkPreviewPassword(generated);
-    setBulkPassword(generated);
-  };
-  
-  const handleManualUpdate = async (testFirst: boolean) => {
-    if (!selectedVmId || !newPassword) return;
-    if (newPassword !== confirmPassword) {
-      alert('Passwords do not match');
-      return;
+
+  const handleEnvBulkUpdate = async (envId: string, password: string, testConnection: boolean): Promise<{ results: BulkResult[]; successCount: number; failCount: number }> => {
+    const res = await fetch(`/api/vms/environments/${envId}/passwords/bulk-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ 
+        newPassword: password, 
+        testConnection,
+      })
+    });
+    
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.message || data.error);
     }
     
-    setUpdatingPassword(true);
+    fetchVMGroups(true);
+    loadHistory();
     
-    try {
-      const res = await fetch(`/api/vms/${selectedVmId}/password/manual`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ newPassword, testConnection: testFirst })
-      });
-      
-      const data = await res.json();
-      
-      if (res.ok) {
-        alert('Password updated successfully');
-        setNewPassword('');
-        setConfirmPassword('');
-        setPreviewPassword(null);
-        fetchVMGroups(true);
-        loadRateLimitInfo();
-        loadHistory();
-      } else {
-        alert(data.message || data.error);
-      }
-    } catch {
-      alert('Failed to update password');
-    } finally {
-      setUpdatingPassword(false);
-    }
+    return {
+      results: data.results,
+      successCount: data.successCount,
+      failCount: data.failCount,
+    };
   };
-  
-  const handleAutoReset = async () => {
+
+  const handleTestConnection = async (): Promise<{ success: boolean; message: string }> => {
+    if (!selectedVmId) return { success: false, message: 'No VM selected' };
+    
+    const res = await fetch(`/api/vms/${selectedVmId}/password/test`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    const data = await res.json();
+    
+    return {
+      success: data.success,
+      message: data.message,
+    };
+  };
+
+  const handleManualUpdate = async (password: string, testFirst: boolean) => {
+    if (!selectedVmId || !password) return;
+    
+    const res = await fetch(`/api/vms/${selectedVmId}/password/manual`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ newPassword: password, testConnection: testFirst })
+    });
+    
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.message || data.error);
+    }
+    
+    fetchVMGroups(true);
+    loadRateLimitInfo(selectedVmId);
+    loadHistory();
+    loadVmHistory(selectedVmId);
+  };
+
+  const handleAutoReset = async (length: number, includeSpecial: boolean): Promise<string | null> => {
+    if (!selectedVmId) return null;
+    
+    const res = await fetch(`/api/vms/${selectedVmId}/password/auto-reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ 
+        length, 
+        includeSpecialChars: includeSpecial,
+        testBeforeChange: true,
+      })
+    });
+    
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.message || data.error);
+    }
+    
+    fetchVMGroups(true);
+    loadRateLimitInfo(selectedVmId);
+    loadHistory();
+    loadVmHistory(selectedVmId);
+    
+    return data.newPassword;
+  };
+
+  const handleSyncPassword = async (password: string) => {
     if (!selectedVmId) return;
     
-    if (!confirm('This will change the password on the VM directly. Make sure you have console access as backup. Continue?')) {
-      return;
+    const res = await fetch(`/api/vms/${selectedVmId}/password/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ actualPassword: password })
+    });
+    
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.message || data.error);
     }
     
-    setAutoResetting(true);
-    setGeneratedPassword(null);
-    
-    try {
-      const res = await fetch(`/api/vms/${selectedVmId}/password/auto-reset`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ 
-          length: autoResetLength, 
-          includeSpecialChars,
-          testBeforeChange: true 
-        })
-      });
-      
-      const data = await res.json();
-      
-      if (res.ok) {
-        setGeneratedPassword(data.newPassword);
-        fetchVMGroups(true);
-        loadRateLimitInfo();
-        loadHistory();
-      } else {
-        alert(data.message || data.error);
-      }
-    } catch {
-      alert('Failed to reset password');
-    } finally {
-      setAutoResetting(false);
-    }
-  };
-  
-  const handleBulkUpdate = async () => {
-    if (!bulkPassword || bulkPassword.length < 6) {
-      alert('Password must be at least 6 characters');
-      return;
-    }
-    
-    if (!confirm(`This will change the password for ALL ${allVMs.length} VMs. Continue?`)) {
-      return;
-    }
-    
-    setBulkUpdating(true);
-    setBulkResults(null);
-    
-    try {
-      const res = await fetch('/api/vms/passwords/bulk-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ 
-          newPassword: bulkPassword, 
-          testConnection: bulkTestConnection 
-        })
-      });
-      
-      const data = await res.json();
-      
-      if (res.ok) {
-        setBulkResults(data.results);
-        setBulkPassword('');
-        setBulkPreviewPassword(null);
-        fetchVMGroups(true);
-        loadHistory();
-        alert(`Bulk update complete: ${data.successCount} succeeded, ${data.failCount} failed`);
-      } else {
-        alert(data.message || data.error);
-      }
-    } catch {
-      alert('Failed to update passwords');
-    } finally {
-      setBulkUpdating(false);
-    }
+    fetchVMGroups(true);
+    loadVmHistory(selectedVmId);
+    loadHistory();
   };
 
-  const selectedEnvGroup = vmGroups.find(g => g.environmentId === envBulkEnvId);
-  const selectedEnvVMCount = selectedEnvGroup?.vms.length || 0;
-
-  const handlePreviewEnvBulkPassword = () => {
-    const generated = generateRandomPassword(16, true);
-    setEnvBulkPreviewPassword(generated);
-    setEnvBulkPassword(generated);
-  };
-
-  const handleEnvBulkUpdate = async () => {
-    if (!envBulkEnvId) {
-      alert('Please select an environment');
-      return;
+  const handleRestorePassword = async (historyId: string) => {
+    if (!selectedVmId) return;
+    
+    const res = await fetch(`/api/vms/${selectedVmId}/password/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ historyId })
+    });
+    
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.message || data.error);
     }
     
-    if (!envBulkPassword || envBulkPassword.length < 6) {
-      alert('Password must be at least 6 characters');
-      return;
-    }
-    
-    if (!confirm(`This will change the password for all ${selectedEnvVMCount} VMs in ${selectedEnvGroup?.environmentName}. Continue?`)) {
-      return;
-    }
-    
-    setEnvBulkUpdating(true);
-    setEnvBulkResults(null);
-    
-    try {
-      const res = await fetch(`/api/vms/environments/${envBulkEnvId}/passwords/bulk-update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ 
-          newPassword: envBulkPassword, 
-          testConnection: envBulkTestConnection 
-        })
-      });
-      
-      const data = await res.json();
-      
-      if (res.ok) {
-        setEnvBulkResults(data.results);
-        setEnvBulkPassword('');
-        setEnvBulkPreviewPassword(null);
-        fetchVMGroups(true);
-        loadHistory();
-        alert(`Environment update complete: ${data.successCount} succeeded, ${data.failCount} failed`);
-      } else {
-        alert(data.message || data.error);
-      }
-    } catch {
-      alert('Failed to update passwords');
-    } finally {
-      setEnvBulkUpdating(false);
-    }
-  };
-  
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-  
-  const exportHistory = async (format: 'csv' | 'json') => {
-    try {
-      const res = await fetch(`/api/vms/passwords/export?format=${format}`, {
-        credentials: 'include'
-      });
-      
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `password-history.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch {
-      alert('Failed to export history');
-    }
-  };
-  
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleString();
-  };
-
-  const renderRateLimitText = (info: RateLimitInfo | null, type: 'manual' | 'auto') => {
-    if (!info) return null;
-    
-    if (info.isAdmin) {
-      return (
-        <div className="text-xs text-green-400 pt-2 border-t border-zinc-800">
-          No rate limit for admin
-        </div>
-      );
-    }
-    
-    const limits = type === 'manual' 
-      ? { vm: 5, admin: 20 }
-      : { vm: 3, admin: 10 };
-    
-    return (
-      <div className="text-xs text-zinc-500 pt-2 border-t border-zinc-800">
-        Rate limits: {info.vmRemaining}/{limits.vm} {type} changes per VM, {info.adminRemaining}/{limits.admin} per admin (hourly)
-      </div>
-    );
+    fetchVMGroups(true);
+    loadVmHistory(selectedVmId);
+    loadHistory();
+    loadRateLimitInfo(selectedVmId);
   };
 
   return (
@@ -519,232 +220,18 @@ export default function VMPasswordManager() {
         </div>
       </div>
       
-      {/* Bulk Password Update Section */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
-        <div className="flex items-center gap-2">
-          <Layers size={18} className="text-purple-400" />
-          <h3 className="text-sm font-semibold text-zinc-300">Change Password on All VMs</h3>
-        </div>
-        
-        <div className="bg-purple-500/10 border border-purple-500/20 rounded p-3 text-xs text-purple-400">
-          This will change the password on ALL {allVMs.length} VMs via SSH and update the database.
-        </div>
-        
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-zinc-500 mb-1">New Password for All VMs</label>
-            <div className="flex gap-2">
-              <div className="flex-1 relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={bulkPassword}
-                  onChange={(e) => setBulkPassword(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-purple-500 pr-10"
-                  placeholder="Enter password for all VMs"
-                />
-                <button
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                >
-                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-              <button
-                onClick={handlePreviewBulkPassword}
-                className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors whitespace-nowrap"
-              >
-                Generate
-              </button>
-            </div>
-          </div>
-          
-          {bulkPreviewPassword && (
-            <div className="bg-zinc-800/50 border border-zinc-700 rounded p-3">
-              <div className="text-xs text-zinc-400 mb-1">Generated Password Preview:</div>
-              <div className="flex items-center gap-2">
-                <code className="text-base font-mono text-zinc-200">{bulkPreviewPassword}</code>
-                <button
-                  onClick={() => copyToClipboard(bulkPreviewPassword)}
-                  className="p-1 text-zinc-400 hover:text-zinc-200"
-                >
-                  <Copy size={14} />
-                </button>
-              </div>
-            </div>
-          )}
-          
-          <label className="flex items-center gap-2 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              checked={bulkTestConnection}
-              onChange={(e) => setBulkTestConnection(e.target.checked)}
-              className="rounded border-zinc-700"
-            />
-            Test connection before updating
-          </label>
-          
-          <button
-            onClick={handleBulkUpdate}
-            disabled={bulkUpdating || !bulkPassword || bulkPassword.length < 6}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
-          >
-            {bulkUpdating ? <Loader2 size={14} className="animate-spin" /> : <Layers size={14} />}
-            Update All {allVMs.length} VMs
-          </button>
-          
-          {bulkResults && (
-            <div className="bg-zinc-800/50 border border-zinc-700 rounded p-3 max-h-60 overflow-y-auto">
-              <div className="text-xs text-zinc-400 mb-2">Results:</div>
-              <div className="space-y-1">
-                {bulkResults.map((result) => (
-                  <div key={result.vmId} className="flex items-center gap-2 text-xs">
-                    {result.success ? (
-                      <CheckCircle size={12} className="text-green-400" />
-                    ) : (
-                      <XCircle size={12} className="text-red-400" />
-                    )}
-                    <span className="text-zinc-200">{result.vmName}</span>
-                    {!result.success && result.error && (
-                      <span className="text-red-400">- {result.error}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      <BulkPasswordUpdate 
+        allVMsCount={allVMs.length} 
+        onBulkUpdate={handleBulkUpdate}
+      />
       
-      {/* Environment Bulk Password Update Section */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
-        <div className="flex items-center gap-2">
-          <Layers size={18} className="text-cyan-400" />
-          <h3 className="text-sm font-semibold text-zinc-300">Change Password by Environment</h3>
-        </div>
-        
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-zinc-500 mb-1">Select Environment</label>
-            <select
-              value={envBulkEnvId}
-              onChange={(e) => {
-                setEnvBulkEnvId(e.target.value);
-                setEnvBulkResults(null);
-              }}
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-cyan-500"
-            >
-              <option value="">-- Select Environment --</option>
-              {vmGroups.map(group => (
-                <option key={group.environmentId} value={group.environmentId}>
-                  {group.environmentName} ({group.vmCount} VMs)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {envBulkEnvId && selectedEnvGroup && (
-            <>
-              <div className="bg-cyan-500/10 border border-cyan-500/20 rounded p-3 text-xs text-cyan-400">
-                This will change the password on {selectedEnvVMCount} VMs in "{selectedEnvGroup.environmentName}" via SSH.
-              </div>
-              
-              <div>
-                <label className="block text-xs text-zinc-500 mb-1">New Password for Environment VMs</label>
-                <div className="flex gap-2">
-                  <div className="flex-1 relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={envBulkPassword}
-                      onChange={(e) => setEnvBulkPassword(e.target.value)}
-                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-cyan-500 pr-10"
-                      placeholder="Enter password for environment VMs"
-                    />
-                    <button
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                    >
-                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                  <button
-                    onClick={handlePreviewEnvBulkPassword}
-                    className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors whitespace-nowrap"
-                  >
-                    Generate
-                  </button>
-                </div>
-              </div>
-
-              {envBulkPreviewPassword && (
-                <div className="bg-zinc-800/50 border border-zinc-700 rounded p-3">
-                  <div className="text-xs text-zinc-400 mb-1">Generated Password Preview:</div>
-                  <div className="flex items-center gap-2">
-                    <code className="text-base font-mono text-zinc-200">{envBulkPreviewPassword}</code>
-                    <button
-                      onClick={() => copyToClipboard(envBulkPreviewPassword)}
-                      className="p-1 text-zinc-400 hover:text-zinc-200"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <label className="flex items-center gap-2 text-sm text-zinc-300">
-                <input
-                  type="checkbox"
-                  checked={envBulkTestConnection}
-                  onChange={(e) => setEnvBulkTestConnection(e.target.checked)}
-                  className="rounded border-zinc-700"
-                />
-                Test connection before updating
-              </label>
-
-              <button
-                onClick={handleEnvBulkUpdate}
-                disabled={envBulkUpdating || !envBulkPassword || envBulkPassword.length < 6}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
-              >
-                {envBulkUpdating ? <Loader2 size={14} className="animate-spin" /> : <Layers size={14} />}
-                Update {selectedEnvVMCount} VMs in {selectedEnvGroup.environmentName}
-              </button>
-
-              {envBulkResults && (
-                <div className="bg-zinc-800/50 border border-zinc-700 rounded p-3 max-h-60 overflow-y-auto">
-                  <div className="text-xs text-zinc-400 mb-2">Results:</div>
-                  <div className="space-y-1">
-                    {envBulkResults.map((result) => (
-                      <div key={result.vmId} className="flex items-center gap-2 text-xs">
-                        {result.success ? (
-                          <CheckCircle size={12} className="text-green-400" />
-                        ) : (
-                          <XCircle size={12} className="text-red-400" />
-                        )}
-                        <span className="text-zinc-200">{result.vmName}</span>
-                        {!result.success && result.error && (
-                          <span className="text-red-400">- {result.error}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+      <EnvironmentBulkUpdate onUpdate={handleEnvBulkUpdate} />
       
-      {/* Single VM Selection */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
         <label className="block text-xs font-medium text-zinc-500 mb-2">Select Single VM</label>
         <select
           value={selectedVmId}
-          onChange={(e) => {
-            setSelectedVmId(e.target.value);
-            setConnectionStatus('idle');
-            setGeneratedPassword(null);
-            setPreviewPassword(null);
-          }}
+          onChange={(e) => setSelectedVmId(e.target.value)}
           className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
         >
           <option value="">-- Select a VM --</option>
@@ -759,411 +246,25 @@ export default function VMPasswordManager() {
       </div>
       
       {selectedVM && (
-        <>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
-            <h3 className="text-sm font-semibold text-zinc-300">Current Credentials</h3>
-            
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-zinc-500">Name:</span>
-                <span className="text-zinc-200 ml-2">{selectedVM.name}</span>
-              </div>
-              <div>
-                <span className="text-zinc-500">IP:</span>
-                <span className="text-zinc-200 ml-2">{selectedVM.ip}</span>
-              </div>
-              <div>
-                <span className="text-zinc-500">Username:</span>
-                <span className="text-zinc-200 ml-2">{selectedVM.username}</span>
-              </div>
-              <div>
-                <span className="text-zinc-500">Password:</span>
-                <span className="text-zinc-200 ml-2 font-mono">
-                  {showPassword ? (selectedVM.password || '••••••••') : '••••••••'}
-                </span>
-                <button
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="ml-2 text-zinc-500 hover:text-zinc-300"
-                >
-                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                onClick={testConnection}
-                disabled={testingConnection}
-                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors"
-              >
-                {testingConnection ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-                Test Connection
-              </button>
-              
-              {connectionStatus !== 'idle' && (
-                <div className={`flex items-center gap-2 text-sm ${
-                  connectionStatus === 'success' ? 'text-green-400' : 'text-red-400'
-                }`}>
-                  {connectionStatus === 'success' ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                  {connectionMessage}
-                </div>
-              )}
-            </div>
-            
-            {renderRateLimitText(manualRateLimit, 'manual')}
-          </div>
-          
-          {/* Sync Database with VM Password */}
-          <div className="bg-zinc-900 border border-orange-500/30 rounded-lg p-4 space-y-4">
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={18} className="text-orange-400" />
-              <h3 className="text-sm font-semibold text-zinc-300">Sync Database with VM</h3>
-            </div>
-            
-            <div className="bg-orange-500/10 border border-orange-500/20 rounded p-3 text-xs text-orange-400">
-              If the password in the database doesn't match the actual VM password, enter the correct password below to sync.
-            </div>
-            
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-zinc-500 mb-1">Actual VM Password</label>
-                <div className="flex gap-2">
-                  <div className="flex-1 relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={syncPassword}
-                      onChange={(e) => setSyncPassword(e.target.value)}
-                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-orange-500 pr-10"
-                      placeholder="Enter the actual password on the VM"
-                    />
-                    <button
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                    >
-                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                  <button
-                    onClick={handleSyncPassword}
-                    disabled={syncing || !syncPassword}
-                    className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
-                  >
-                    {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                    Sync
-                  </button>
-                </div>
-              </div>
-              <p className="text-xs text-zinc-500">
-                This will test the password on the VM and update the database if successful.
-              </p>
-            </div>
-          </div>
-          
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
-            <h3 className="text-sm font-semibold text-zinc-300">Change Password on VM</h3>
-            <p className="text-xs text-zinc-500">This will change the password on the VM via SSH and update the database.</p>
-            
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-zinc-500 mb-1">New Password</label>
-                <div className="flex gap-2">
-                  <div className="flex-1 relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={newPassword}
-                      onChange={(e) => {
-                        setNewPassword(e.target.value);
-                        setPreviewPassword(null);
-                      }}
-                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                      placeholder="Enter new password"
-                    />
-                  </div>
-                  <button
-                    onClick={handlePreviewPassword}
-                    className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors whitespace-nowrap"
-                  >
-                    Generate
-                  </button>
-                </div>
-              </div>
-
-              {previewPassword && (
-                <div className="bg-blue-500/10 border border-blue-500/20 rounded p-3">
-                  <div className="text-xs text-blue-400 mb-1">Generated Password Preview:</div>
-                  <div className="flex items-center gap-2">
-                    <code className="text-base font-mono text-blue-300">{previewPassword}</code>
-                    <button
-                      onClick={() => copyToClipboard(previewPassword)}
-                      className="p-1 text-blue-400 hover:text-blue-300"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              <div>
-                <label className="block text-xs text-zinc-500 mb-1">Confirm Password</label>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                  placeholder="Confirm new password"
-                />
-              </div>
-              
-              <div className="flex items-center gap-4 text-sm">
-                <label className="flex items-center gap-2 text-zinc-300">
-                  <input
-                    type="checkbox"
-                    checked={includeSpecialChars}
-                    onChange={(e) => setIncludeSpecialChars(e.target.checked)}
-                    className="rounded border-zinc-700"
-                  />
-                  Special chars
-                </label>
-                <div>
-                  <label className="block text-xs text-zinc-500 mb-1">Length</label>
-                  <input
-                    type="number"
-                    value={autoResetLength}
-                    onChange={(e) => setAutoResetLength(Math.max(8, Math.min(64, parseInt(e.target.value) || 16)))}
-                    className="w-16 bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500"
-                    min={8}
-                    max={64}
-                  />
-                </div>
-              </div>
-              
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleManualUpdate(true)}
-                  disabled={updatingPassword || !newPassword || newPassword !== confirmPassword}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
-                >
-                  {updatingPassword ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                  Test & Save
-                </button>
-                <button
-                  onClick={() => handleManualUpdate(false)}
-                  disabled={updatingPassword || !newPassword || newPassword !== confirmPassword}
-                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
-                >
-                  Save Without Test
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          {/* Password History & Restore Section */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <RotateCcw size={18} className="text-green-400" />
-                <h3 className="text-sm font-semibold text-zinc-300">Password History & Restore</h3>
-              </div>
-              <button
-                onClick={() => setShowVmHistory(!showVmHistory)}
-                className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors"
-              >
-                {showVmHistory ? 'Hide' : 'Show'} History
-              </button>
-            </div>
-            
-            <div className="bg-green-500/10 border border-green-500/20 rounded p-3 text-xs text-green-400">
-              If the password was changed in the database but not on the VM, you can restore an old password from history.
-            </div>
-            
-            {showVmHistory && (
-              <>
-                {vmHistoryLoading ? (
-                  <div className="flex justify-center py-4">
-                    <Loader2 className="animate-spin text-zinc-500" size={20} />
-                  </div>
-                ) : vmHistory.length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="text-xs text-zinc-500 mb-2">Previous passwords (click to restore):</div>
-                    {vmHistory.map((entry, index) => (
-                      <div 
-                        key={entry.id} 
-                        className={`p-3 rounded border ${
-                          entry.success 
-                            ? 'bg-zinc-800/50 border-zinc-700' 
-                            : 'bg-red-900/20 border-red-800/50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 text-xs mb-1">
-                              <span className="text-zinc-400">#{vmHistory.length - index}</span>
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                                entry.operationType === 'auto' 
-                                  ? 'bg-orange-500/20 text-orange-400' 
-                                  : 'bg-blue-500/20 text-blue-400'
-                              }`}>
-                                {entry.operationType}
-                              </span>
-                              <span className="text-zinc-500">{formatDate(entry.createdAt)}</span>
-                              {!entry.success && (
-                                <span className="text-red-400">Failed: {entry.errorMessage}</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 text-sm">
-                              {entry.oldPassword && (
-                                <div className="flex items-center gap-1">
-                                  <span className="text-zinc-500">Old:</span>
-                                  <code className="text-zinc-300 font-mono bg-zinc-900 px-1 rounded">
-                                    {showPassword ? entry.oldPassword : '••••••••'}
-                                  </code>
-                                </div>
-                              )}
-                              <div className="flex items-center gap-1">
-                                <span className="text-zinc-500">New:</span>
-                                <code className="text-zinc-300 font-mono bg-zinc-900 px-1 rounded">
-                                  {showPassword ? entry.newPassword : '••••••••'}
-                                </code>
-                              </div>
-                            </div>
-                          </div>
-                          {entry.oldPassword && (
-                            <button
-                              onClick={() => handleRestorePassword(entry.id, entry.oldPassword)}
-                              disabled={restoringPassword}
-                              className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-xs transition-colors ml-3"
-                            >
-                              {restoringPassword ? (
-                                <Loader2 size={12} className="animate-spin" />
-                              ) : (
-                                <RotateCcw size={12} />
-                              )}
-                              Restore
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-4 text-zinc-600 text-sm">No password history for this VM</div>
-                )}
-              </>
-            )}
-          </div>
-          
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-zinc-300">Automatic Password Reset</h3>
-              <AlertTriangle size={14} className="text-yellow-500" />
-            </div>
-            
-            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded p-3 text-xs text-yellow-400">
-              Warning: This will change the password directly on the VM. Make sure you have console access as backup.
-            </div>
-            
-            <button
-              onClick={handleAutoReset}
-              disabled={autoResetting}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-zinc-800 disabled:text-zinc-500 rounded text-sm transition-colors"
-            >
-              {autoResetting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              Reset Password on VM
-            </button>
-            
-            {generatedPassword && (
-              <div className="bg-green-500/10 border border-green-500/20 rounded p-3">
-                <div className="text-xs text-green-400 mb-1">New Password Generated:</div>
-                <div className="flex items-center gap-2">
-                  <code className="text-lg font-mono text-green-300">{generatedPassword}</code>
-                  <button
-                    onClick={() => copyToClipboard(generatedPassword)}
-                    className="p-1 text-green-400 hover:text-green-300"
-                  >
-                    <Copy size={14} />
-                  </button>
-                </div>
-                <div className="text-xs text-yellow-400 mt-2">
-                  Please save this password securely. It will not be shown again.
-                </div>
-              </div>
-            )}
-            
-            {renderRateLimitText(autoRateLimit, 'auto')}
-          </div>
-        </>
+        <SingleVMPasswordManager
+          vm={selectedVM}
+          manualRateLimit={manualRateLimit}
+          autoRateLimit={autoRateLimit}
+          vmHistory={vmHistory}
+          vmHistoryLoading={vmHistoryLoading}
+          onTestConnection={handleTestConnection}
+          onManualUpdate={handleManualUpdate}
+          onAutoReset={handleAutoReset}
+          onSyncPassword={handleSyncPassword}
+          onRestorePassword={handleRestorePassword}
+        />
       )}
       
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-zinc-300">Password Change History</h3>
-          <div className="flex gap-2">
-            <button
-              onClick={() => exportHistory('csv')}
-              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-xs transition-colors"
-            >
-              <Download size={12} /> CSV
-            </button>
-            <button
-              onClick={() => exportHistory('json')}
-              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-xs transition-colors"
-            >
-              <Download size={12} /> JSON
-            </button>
-          </div>
-        </div>
-        
-        {historyLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="animate-spin text-zinc-500" size={20} />
-          </div>
-        ) : history.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-zinc-500 border-b border-zinc-800">
-                  <th className="pb-2 pr-4">VM</th>
-                  <th className="pb-2 pr-4">IP</th>
-                  <th className="pb-2 pr-4">New Password</th>
-                  <th className="pb-2 pr-4">Type</th>
-                  <th className="pb-2 pr-4">By</th>
-                  <th className="pb-2 pr-4">Status</th>
-                  <th className="pb-2">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((entry) => (
-                  <tr key={entry.id} className="border-b border-zinc-800/50">
-                    <td className="py-2 pr-4 text-zinc-200">{entry.vmName}</td>
-                    <td className="py-2 pr-4 text-zinc-400">{entry.vmIp}</td>
-                    <td className="py-2 pr-4 font-mono text-zinc-300">
-                      {entry.success ? '••••••••' : '-'}
-                    </td>
-                    <td className="py-2 pr-4">
-                      <span className={`px-2 py-0.5 rounded text-[10px] ${
-                        entry.operationType === 'auto' ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'
-                      }`}>
-                        {entry.operationType}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4 text-zinc-400">{entry.changedBy}</td>
-                    <td className="py-2 pr-4">
-                      {entry.success ? (
-                        <CheckCircle size={12} className="text-green-400" />
-                      ) : (
-                        <XCircle size={12} className="text-red-400" />
-                      )}
-                    </td>
-                    <td className="py-2 text-zinc-500">{formatDate(entry.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="text-center py-8 text-zinc-600 text-sm">No password history yet</div>
-        )}
-      </div>
+      <PasswordHistory
+        history={history}
+        loading={historyLoading}
+        onExport={exportHistory}
+      />
     </div>
   );
 }
