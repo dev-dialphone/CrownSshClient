@@ -16,27 +16,29 @@ import {
 } from '../../middleware/passwordRateLimit.js';
 import logger from '../../utils/logger.js';
 
-const router = Router();
+const router = Router({ mergeParams: true });
 
 router.use(requireAuth);
 router.use(requireRole('admin'));
 
-router.get('/:id/history', asyncHandler(async (req, res) => {
-  const vm = await vmService.getById(req.params.id);
+router.get('/history', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const vm = await vmService.getById(id);
   if (!vm) {
     res.status(404).json({ error: 'VM not found' });
     return;
   }
   
   const result = await vmService.getPasswordHistory({
-    vmId: req.params.id,
+    vmId: id,
     limit: 20,
   });
   
   res.json(result.data);
 }));
 
-router.post('/:id/restore', asyncHandler(async (req, res) => {
+router.post('/restore', asyncHandler(async (req, res) => {
+  const { id } = req.params;
   const { historyId } = req.body;
   const user = req.user as IUser;
   const adminId = (user as any)._id?.toString() || (user as any).id;
@@ -46,7 +48,7 @@ router.post('/:id/restore', asyncHandler(async (req, res) => {
     return;
   }
   
-  const vm = await vmService.getById(req.params.id);
+  const vm = await vmService.getById(id);
   if (!vm) {
     res.status(404).json({ error: 'VM not found' });
     return;
@@ -135,10 +137,11 @@ router.post('/:id/restore', asyncHandler(async (req, res) => {
   }
 }));
 
-router.post('/:id/test', 
+router.post('/test', 
   testConnectionRateLimit,
   asyncHandler(async (req, res) => {
-    const vm = await vmService.getById(req.params.id);
+    const { id } = req.params;
+    const vm = await vmService.getById(id);
     if (!vm) {
       res.status(404).json({ error: 'VM not found' });
       return;
@@ -149,7 +152,8 @@ router.post('/:id/test',
   })
 );
 
-router.post('/:id/sync', asyncHandler(async (req, res) => {
+router.post('/sync', asyncHandler(async (req, res) => {
+  const { id } = req.params;
   const { actualPassword } = req.body;
   const user = req.user as IUser;
   const adminId = (user as any)._id?.toString() || (user as any).id;
@@ -159,7 +163,7 @@ router.post('/:id/sync', asyncHandler(async (req, res) => {
     return;
   }
   
-  const vm = await vmService.getById(req.params.id);
+  const vm = await vmService.getById(id);
   if (!vm) {
     res.status(404).json({ error: 'VM not found' });
     return;
@@ -207,24 +211,25 @@ router.post('/:id/sync', asyncHandler(async (req, res) => {
   });
 }));
 
-router.get('/:id/rate-limit', asyncHandler(async (req, res) => {
-  const vmId = req.params.id;
+router.get('/rate-limit', asyncHandler(async (req, res) => {
+  const { id } = req.params;
   const user = req.user as IUser;
   const adminId = (user as any)._id?.toString() || (user as any).id;
   const isAdmin = user.role === 'admin';
   
   const [manualInfo, autoInfo] = await Promise.all([
-    getPasswordRateLimitInfo(vmId, adminId, 'manual', isAdmin),
-    getPasswordRateLimitInfo(vmId, adminId, 'auto', isAdmin),
+    getPasswordRateLimitInfo(id, adminId, 'manual', isAdmin),
+    getPasswordRateLimitInfo(id, adminId, 'auto', isAdmin),
   ]);
   
   res.json({ manual: manualInfo, auto: autoInfo });
 }));
 
-router.put('/:id/manual',
+router.put('/manual',
   manualPasswordRateLimit,
   passwordLockMiddleware,
   asyncHandler(async (req, res) => {
+    const { id } = req.params;
     const { newPassword, testConnection = true } = req.body;
     const user = req.user as IUser;
     const adminId = (user as any)._id?.toString() || (user as any).id;
@@ -234,7 +239,7 @@ router.put('/:id/manual',
       return;
     }
     
-    const vm = await vmService.getById(req.params.id);
+    const vm = await vmService.getById(id);
     if (!vm) {
       res.status(404).json({ error: 'VM not found' });
       return;
@@ -321,15 +326,16 @@ router.put('/:id/manual',
   })
 );
 
-router.post('/:id/auto-reset',
+router.post('/auto-reset',
   autoPasswordRateLimit,
   passwordLockMiddleware,
   asyncHandler(async (req, res) => {
+    const { id } = req.params;
     const { length = 16, includeSpecialChars = true, testBeforeChange = true } = req.body;
     const user = req.user as IUser;
     const adminId = (user as any)._id?.toString() || (user as any).id;
     
-    const vm = await vmService.getById(req.params.id);
+    const vm = await vmService.getById(id);
     if (!vm) {
       res.status(404).json({ error: 'VM not found' });
       return;
