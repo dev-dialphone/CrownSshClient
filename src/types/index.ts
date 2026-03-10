@@ -87,6 +87,9 @@ export interface MonitoringMetrics {
   status: 'healthy' | 'warning' | 'critical' | 'error';
   error?: string;
   timestamp: string;
+  earlyDialogs?: number;
+  expiredDialogs?: number;
+  failedDialogs?: number;
 }
 
 export interface EnvironmentSummary {

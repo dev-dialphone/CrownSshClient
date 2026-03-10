@@ -16,6 +16,9 @@ export interface MonitoringMetrics {
   status: 'healthy' | 'warning' | 'critical' | 'error';
   error?: string;
   timestamp: Date;
+  earlyDialogs?: number;
+  expiredDialogs?: number;
+  failedDialogs?: number;
 }
 
 export interface EnvironmentSummary {
@@ -100,6 +103,9 @@ const parseOPSOutput = (output: string): Partial<MonitoringMetrics> => {
     currentCPS: 0,
     maxCPS: 0,
     totalSessions: 0,
+    earlyDialogs: 0,
+    expiredDialogs: 0,
+    failedDialogs: 0,
   };
 
   try {
@@ -111,7 +117,10 @@ const parseOPSOutput = (output: string): Partial<MonitoringMetrics> => {
     const data: OPSDialogStats = JSON.parse(jsonMatch[0]);
 
     metrics.activeCalls = data['dialog:active_dialogs'] || 0;
+    metrics.earlyDialogs = data['dialog:early_dialogs'] || 0;
     metrics.totalSessions = data['dialog:processed_dialogs'] || 0;
+    metrics.expiredDialogs = data['dialog:expired_dialogs'] || 0;
+    metrics.failedDialogs = data['dialog:failed_dialogs'] || 0;
   } catch {
     logger.warn('Failed to parse OPS output as JSON');
   }
@@ -218,6 +227,9 @@ export const monitorService = {
         usagePercent,
         status,
         timestamp,
+        earlyDialogs: parsed.earlyDialogs,
+        expiredDialogs: parsed.expiredDialogs,
+        failedDialogs: parsed.failedDialogs,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

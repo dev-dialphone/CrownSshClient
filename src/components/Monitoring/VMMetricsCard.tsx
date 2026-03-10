@@ -12,7 +12,6 @@ import {
   Edit3,
 } from 'lucide-react';
 import { MonitoringMetrics } from '../../types';
-import { SortField, SortDirection } from '../../store/monitorStore';
 import { VMTag } from '../../types';
 
 interface VMTagsData {
@@ -104,17 +103,32 @@ export function VMMetricsCard({
 
         {vm.status !== 'error' ? (
           <div className="flex items-center gap-4 text-xs">
-            <span className="text-zinc-400">
-              <span className="text-zinc-200 font-medium">{vm.activeCalls}</span>
-              <span className="text-zinc-500">/{vm.maxSessions}</span>
-            </span>
-            <span className="text-zinc-400">
-              CPS: <span className="text-zinc-200">{vm.currentCPS}</span>
-              <span className="text-zinc-500">/{vm.maxCPS}</span>
-            </span>
-            <span className={`font-medium ${getStatusColor(vm.status)}`}>
-              {vm.usagePercent}%
-            </span>
+            {vm.maxSessions > 0 ? (
+              <span className="text-zinc-400">
+                <span className="text-zinc-200 font-medium">{vm.activeCalls}</span>
+                <span className="text-zinc-500">/{vm.maxSessions}</span>
+              </span>
+            ) : (
+              <span className="text-zinc-400">
+                Active: <span className="text-zinc-200 font-medium">{vm.activeCalls}</span>
+              </span>
+            )}
+            {(vm.currentCPS > 0 || vm.maxCPS > 0) && (
+              <span className="text-zinc-400">
+                CPS: <span className="text-zinc-200">{vm.currentCPS}</span>
+                <span className="text-zinc-500">/{vm.maxCPS}</span>
+              </span>
+            )}
+            {vm.earlyDialogs !== undefined && vm.earlyDialogs > 0 && (
+              <span className="text-zinc-400">
+                Early: <span className="text-zinc-200">{vm.earlyDialogs}</span>
+              </span>
+            )}
+            {vm.maxSessions > 0 && vm.usagePercent > 0 && (
+              <span className={`font-medium ${getStatusColor(vm.status)}`}>
+                {vm.usagePercent}%
+              </span>
+            )}
           </div>
         ) : (
           <span className="text-xs text-red-400 flex items-center gap-1">
@@ -123,7 +137,7 @@ export function VMMetricsCard({
         )}
       </button>
 
-      {vm.status !== 'error' && (
+      {vm.status !== 'error' && vm.maxSessions > 0 && (
         <div className="px-3 pb-2">
           <div className="w-full bg-zinc-800 rounded-full h-1.5">
             <div
@@ -137,29 +151,63 @@ export function VMMetricsCard({
       {isExpanded && (
         <div className="px-3 pb-3 pt-1 border-t border-zinc-800/50 space-y-3">
           {vm.status !== 'error' && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-              <div>
-                <span className="text-zinc-500">Peak Calls</span>
-                <p className="text-zinc-200 font-medium">{vm.peakCalls.toLocaleString()}</p>
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <span className="text-zinc-500">Active Calls</span>
+                  <p className="text-zinc-200 font-medium">{vm.activeCalls.toLocaleString()}</p>
+                </div>
+                <div>
+                  <span className="text-zinc-500">Total Sessions</span>
+                  <p className="text-zinc-200 font-medium">{vm.totalSessions.toLocaleString()}</p>
+                </div>
+                {vm.earlyDialogs !== undefined && vm.earlyDialogs > 0 && (
+                  <div>
+                    <span className="text-zinc-500">Early Dialogs</span>
+                    <p className="text-zinc-200 font-medium">{vm.earlyDialogs.toLocaleString()}</p>
+                  </div>
+                )}
+                {vm.expiredDialogs !== undefined && vm.expiredDialogs > 0 && (
+                  <div>
+                    <span className="text-zinc-500">Expired Dialogs</span>
+                    <p className="text-zinc-200 font-medium">{vm.expiredDialogs.toLocaleString()}</p>
+                  </div>
+                )}
+                {vm.failedDialogs !== undefined && vm.failedDialogs > 0 && (
+                  <div>
+                    <span className="text-zinc-500">Failed Dialogs</span>
+                    <p className="text-zinc-200 font-medium">{vm.failedDialogs.toLocaleString()}</p>
+                  </div>
+                )}
+                {vm.peakCalls > 0 && (
+                  <div>
+                    <span className="text-zinc-500">Peak Calls</span>
+                    <p className="text-zinc-200 font-medium">{vm.peakCalls.toLocaleString()}</p>
+                  </div>
+                )}
+                {(vm.currentCPS > 0 || vm.maxCPS > 0) && (
+                  <div>
+                    <span className="text-zinc-500">Current CPS</span>
+                    <p className="text-zinc-200 font-medium">{vm.currentCPS} / {vm.maxCPS}</p>
+                  </div>
+                )}
+                {vm.maxSessions > 0 && (
+                  <div>
+                    <span className="text-zinc-500">Max Sessions</span>
+                    <p className="text-zinc-200 font-medium">{vm.maxSessions.toLocaleString()}</p>
+                  </div>
+                )}
+                <div>
+                  <span className="text-zinc-500">Status</span>
+                  <p className={`font-medium capitalize flex items-center gap-1 ${getStatusColor(vm.status)}`}>
+                    {vm.status === 'healthy' && <CheckCircle size={10} />}
+                    {vm.status === 'warning' && <AlertTriangle size={10} />}
+                    {vm.status === 'critical' && <XCircle size={10} />}
+                    {vm.status}
+                  </p>
+                </div>
               </div>
-              <div>
-                <span className="text-zinc-500">Total Sessions</span>
-                <p className="text-zinc-200 font-medium">{vm.totalSessions.toLocaleString()}</p>
-              </div>
-              <div>
-                <span className="text-zinc-500">Current CPS</span>
-                <p className="text-zinc-200 font-medium">{vm.currentCPS} / {vm.maxCPS}</p>
-              </div>
-              <div>
-                <span className="text-zinc-500">Status</span>
-                <p className={`font-medium capitalize flex items-center gap-1 ${getStatusColor(vm.status)}`}>
-                  {vm.status === 'healthy' && <CheckCircle size={10} />}
-                  {vm.status === 'warning' && <AlertTriangle size={10} />}
-                  {vm.status === 'critical' && <XCircle size={10} />}
-                  {vm.status}
-                </p>
-              </div>
-            </div>
+            </>
           )}
 
           <div>
