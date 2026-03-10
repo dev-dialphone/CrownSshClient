@@ -78,6 +78,54 @@ const parseIVGOutput = (output: string): Partial<MonitoringMetrics> => {
   return metrics;
 };
 
+interface OPSDialogStats {
+  'dialog:active_dialogs'?: number;
+  'dialog:early_dialogs'?: number;
+  'dialog:processed_dialogs'?: number;
+  'dialog:expired_dialogs'?: number;
+  'dialog:failed_dialogs'?: number;
+  'dialog:create_sent'?: number;
+  'dialog:update_sent'?: number;
+  'dialog:delete_sent'?: number;
+  'dialog:create_recv'?: number;
+  'dialog:update_recv'?: number;
+  'dialog:delete_recv'?: number;
+}
+
+const parseOPSOutput = (output: string): Partial<MonitoringMetrics> => {
+  const metrics: Partial<MonitoringMetrics> = {
+    activeCalls: 0,
+    maxSessions: 0,
+    peakCalls: 0,
+    currentCPS: 0,
+    maxCPS: 0,
+    totalSessions: 0,
+  };
+
+  try {
+    const jsonMatch = output.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return metrics;
+    }
+
+    const data: OPSDialogStats = JSON.parse(jsonMatch[0]);
+
+    metrics.activeCalls = data['dialog:active_dialogs'] || 0;
+    metrics.totalSessions = data['dialog:processed_dialogs'] || 0;
+  } catch {
+    logger.warn('Failed to parse OPS output as JSON');
+  }
+
+  return metrics;
+};
+
+const parseMonitoringOutput = (output: string): Partial<MonitoringMetrics> => {
+  if (output.includes('opensips-cli') || output.includes('dialog:active_dialogs')) {
+    return parseOPSOutput(output);
+  }
+  return parseIVGOutput(output);
+};
+
 const getStatus = (usagePercent: number): 'healthy' | 'warning' | 'critical' => {
   if (usagePercent >= 90) return 'critical';
   if (usagePercent >= 70) return 'warning';
@@ -152,7 +200,7 @@ export const monitorService = {
       const output = await executeMonitoringCommand(vm, monitoringCommand);
       logger.debug(`Monitoring output for VM ${vm.name}: ${output}`);
 
-      const parsed = parseIVGOutput(output);
+      const parsed = parseMonitoringOutput(output);
 
       const usagePercent = parsed.usagePercent || 0;
       const status = getStatus(usagePercent);

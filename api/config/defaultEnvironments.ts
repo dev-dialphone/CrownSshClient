@@ -7,7 +7,7 @@ export const DEFAULT_ENVIRONMENTS = [
     {
         name: 'OPS',
         command: "echo '{{PASSWORD}}' | su -c 'sudo service opensips restart && sudo systemctl restart opensips'",
-        monitoringCommand: ""
+        monitoringCommand: "echo 'mi get_statistics dialog:' | opensips-cli"
     },
     {
         name: 'VOSS',
