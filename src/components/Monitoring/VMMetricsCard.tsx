@@ -121,7 +121,7 @@ export function VMMetricsCard({
             )}
             {vm.earlyDialogs !== undefined && vm.earlyDialogs > 0 && (
               <span className="text-zinc-400">
-                Early: <span className="text-zinc-200">{vm.earlyDialogs}</span>
+                Ringing: <span className="text-zinc-200">{vm.earlyDialogs}</span>
               </span>
             )}
             {vm.maxSessions > 0 && vm.usagePercent > 0 && (
@@ -163,7 +163,7 @@ export function VMMetricsCard({
                 </div>
                 {vm.earlyDialogs !== undefined && vm.earlyDialogs > 0 && (
                   <div>
-                    <span className="text-zinc-500">Early Dialogs</span>
+                    <span className="text-zinc-500">Ringing Calls</span>
                     <p className="text-zinc-200 font-medium">{vm.earlyDialogs.toLocaleString()}</p>
                   </div>
                 )}

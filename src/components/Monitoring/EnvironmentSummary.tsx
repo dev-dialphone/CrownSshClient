@@ -23,49 +23,58 @@ export function EnvironmentSummary({ summary }: EnvironmentSummaryProps) {
     return 'bg-green-500';
   };
 
+  const showCPS = summary.totalCPS > 0 || summary.maxCPS > 0;
+  const showCapacity = summary.totalCapacity > 0;
+
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
       <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
         Environment Summary
       </h3>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className={`grid gap-4 ${showCPS && showCapacity ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
         <div className="space-y-1">
           <div className="flex items-center gap-1 text-zinc-400 text-xs">
             <Phone size={12} />
-            Total Active
+            Active Calls
           </div>
           <p className="text-2xl font-bold text-zinc-100">
             {summary.totalActive.toLocaleString()}
           </p>
-          <p className="text-xs text-zinc-500">/ {summary.totalCapacity.toLocaleString()}</p>
+          {showCapacity && (
+            <p className="text-xs text-zinc-500">/ {summary.totalCapacity.toLocaleString()} capacity</p>
+          )}
         </div>
 
-        <div className="space-y-1">
-          <div className="flex items-center gap-1 text-zinc-400 text-xs">
-            <Gauge size={12} />
-            Total CPS
+        {showCPS && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1 text-zinc-400 text-xs">
+              <Gauge size={12} />
+              Total CPS
+            </div>
+            <p className="text-2xl font-bold text-zinc-100">
+              {summary.totalCPS}
+            </p>
+            <p className="text-xs text-zinc-500">/ {summary.maxCPS}</p>
           </div>
-          <p className="text-2xl font-bold text-zinc-100">
-            {summary.totalCPS}
-          </p>
-          <p className="text-xs text-zinc-500">/ {summary.maxCPS}</p>
-        </div>
+        )}
 
-        <div className="space-y-1">
-          <div className="flex items-center gap-1 text-zinc-400 text-xs">
-            <TrendingUp size={12} />
-            Usage
+        {showCapacity && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1 text-zinc-400 text-xs">
+              <TrendingUp size={12} />
+              Usage
+            </div>
+            <p className="text-2xl font-bold text-zinc-100">
+              {summary.usagePercent}%
+            </p>
+            <div className="w-full bg-zinc-800 rounded-full h-2 mt-1">
+              <div
+                className={`h-2 rounded-full transition-all ${getUsageBarColor(summary.usagePercent)}`}
+                style={{ width: `${Math.min(summary.usagePercent, 100)}%` }}
+              />
+            </div>
           </div>
-          <p className="text-2xl font-bold text-zinc-100">
-            {summary.usagePercent}%
-          </p>
-          <div className="w-full bg-zinc-800 rounded-full h-2 mt-1">
-            <div
-              className={`h-2 rounded-full transition-all ${getUsageBarColor(summary.usagePercent)}`}
-              style={{ width: `${Math.min(summary.usagePercent, 100)}%` }}
-            />
-          </div>
-        </div>
+        )}
 
         <div className="space-y-1">
           <div className="flex items-center gap-1 text-zinc-400 text-xs">
